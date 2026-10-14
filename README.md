@@ -4,6 +4,10 @@ A small, attribute-routed PHP web service framework. Each module is a
 self-contained API (a webservice class); routing, sessions, authentication and
 policies are wired once and stay out of your way.
 
+> **New here? Read [`docs/`](docs/README.md).** It covers the architecture and
+> walks through [creating a webservice](docs/creating-a-webservice.md) step by
+> step. This README is the quick reference.
+
 ## Request lifecycle
 
 ```
