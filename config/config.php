@@ -14,6 +14,16 @@ return [
     'debug' => true,
 
     /**
+     * Logging. `path` is a file path or a PHP stream (e.g. 'php://stderr');
+     * `level` is the minimum PSR-3 level that gets written. Bind any PSR-3
+     * logger (Monolog, ...) on LoggerInterface to replace the default.
+     */
+    'logging' => [
+        'path' => dirname(__DIR__) . '/storage/logs/app.log',
+        'level' => 'debug',
+    ],
+
+    /**
      * Global middleware, run in order around every request. Each entry is a
      * class-string resolved through the container.
      *

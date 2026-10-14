@@ -117,6 +117,41 @@ Declarative and off by default:
 `AuthorizationMiddleware` enforces them (403 on denial). Routes without
 `#[Authorize]` are unaffected.
 
+## Logging
+
+Logging is PSR-3 (`Psr\Log\LoggerInterface`). The default `LineLogger` writes
+one line per record to a file or stream; bind any PSR-3 logger (Monolog, …) on
+`LoggerInterface` to replace it. Config (`config/config.php` → `logging`):
+
+```php
+'logging' => [
+    'path'  => dirname(__DIR__) . '/storage/logs/app.log', // or 'php://stderr'
+    'level' => 'debug',
+],
+```
+
+Every request gets a correlation `request_id` that appears on all of its log
+records. Logging is wired at the points that matter:
+
+| Where | Level | What |
+|---|---|---|
+| Kernel | debug / info | request received; request handled (status + duration) |
+| Kernel | error | unhandled exception (message, class, file, trace) |
+| Kernel | warning / info | handled `HttpException` (401/403 warn, other 4xx info, 5xx error) |
+| LoginWebservice | info / warning | login succeeded / failed; logout |
+| AuthorizationMiddleware | warning | policy denial (policy, path, subject) |
+| AuthenticationMiddleware | debug | identity resolved (guard, subject) |
+
+Example:
+
+```
+[2026-10-14T06:47:11+00:00] INFO: Login succeeded via ldap {"request_id":"4e48…","provider":"ldap","subject":"devuser","type":"user"}
+[2026-10-14T06:47:11+00:00] WARNING: Request failed with 401: Invalid credentials. {"request_id":"c93c…","status":401,…}
+```
+
+Tests run with a `NullLogger` by default; pass a capturing logger to
+`TestClient::create(logger: …)` to assert on log output.
+
 ## Testing
 
 A dependency-free client boots the app with an in-memory session:
@@ -170,6 +205,7 @@ location / { try_files $uri /index.php$is_args$args; }
 | `src/Container/` | autowiring DI container |
 | `src/Middleware/` | `MiddlewareInterface`, `Pipeline` |
 | `src/Auth/` | identity, sessions, guards, SAML/LDAP providers, OAuth2 |
+| `src/Logging/` | `LineLogger` (PSR-3) |
 | `src/Policy/` | `PolicyInterface`, `Gate`, `AuthorizationMiddleware`, built-in policies |
 | `src/Webservice/` | abstract `Webservice` base class |
 | `src/Modules/` | the modules (`Users`, `Login`, …) |

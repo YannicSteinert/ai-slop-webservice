@@ -17,6 +17,7 @@ use bapersbw\Container\Container;
 use bapersbw\Container\ContainerInterface;
 use bapersbw\Http\Request;
 use bapersbw\Http\Response;
+use bapersbw\Logging\LineLogger;
 use bapersbw\Module\ModuleRegistry;
 use bapersbw\Policy\AuthorizationMiddleware;
 use bapersbw\Policy\Gate;
@@ -24,6 +25,7 @@ use bapersbw\Policy\Policies\AuthenticatedPolicy;
 use bapersbw\Routing\ArgumentResolver;
 use bapersbw\Routing\AttributeRouteLoader;
 use bapersbw\Routing\Router;
+use Psr\Log\LoggerInterface;
 
 /**
  * Composition root. One place wires the container, auth stack, routing and
@@ -45,11 +47,13 @@ final class Application
         private readonly array $config,
         array $modules,
         ?SessionInterface $session = null,
+        ?LoggerInterface $logger = null,
     ) {
         $container = new Container();
         $container->instance(ContainerInterface::class, $container);
         $container->instance(Container::class, $container);
 
+        $this->registerLogger($container, $logger);
         $this->registerSession($container, $session);
         $this->registerAuth($container);
         $this->registerPolicies($container);
@@ -62,6 +66,7 @@ final class Application
             router: $router,
             container: $container,
             arguments: new ArgumentResolver($container),
+            logger: $container->get(LoggerInterface::class),
             middleware: $config['middleware'] ?? [],
             config: $config,
         );
@@ -76,6 +81,24 @@ final class Application
     public function gate(): Gate
     {
         return $this->container->get(Gate::class);
+    }
+
+    private function registerLogger(Container $container, ?LoggerInterface $logger): void
+    {
+        if ($logger !== null) {
+            $container->instance(LoggerInterface::class, $logger);
+
+            return;
+        }
+
+        $logging = (array) ($this->config['logging'] ?? []);
+        $container->instance(
+            LoggerInterface::class,
+            new LineLogger(
+                path: (string) ($logging['path'] ?? 'php://stderr'),
+                minLevel: (string) ($logging['level'] ?? 'debug'),
+            ),
+        );
     }
 
     private function registerSession(Container $container, ?SessionInterface $session): void
@@ -123,14 +146,17 @@ final class Application
             static fn (ContainerInterface $c) => new AuthenticationMiddleware([
                 $c->get(TokenGuard::class),
                 $c->get(SessionGuard::class),
-            ]),
+            ], $c->get(LoggerInterface::class)),
         );
     }
 
     private function registerPolicies(Container $container): void
     {
         $container->singleton(Gate::class, static fn (ContainerInterface $c) => new Gate($c));
-        $container->singleton(AuthorizationMiddleware::class, static fn (ContainerInterface $c) => new AuthorizationMiddleware($c->get(Gate::class)));
+        $container->singleton(
+            AuthorizationMiddleware::class,
+            static fn (ContainerInterface $c) => new AuthorizationMiddleware($c->get(Gate::class), $c->get(LoggerInterface::class)),
+        );
 
         $gate = $container->get(Gate::class);
         $gate->register('authenticated', new AuthenticatedPolicy());

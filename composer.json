@@ -7,6 +7,7 @@
         }
     },
     "require": {
-        "onelogin/php-saml": "^4.1"
+        "onelogin/php-saml": "^4.1",
+        "psr/log": "^3.0"
     }
 }

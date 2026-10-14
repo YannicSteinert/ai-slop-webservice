@@ -15,6 +15,7 @@ use bapersbw\Routing\ArgumentResolver;
 use bapersbw\Routing\RouteMatch;
 use bapersbw\Routing\Router;
 use bapersbw\Webservice\Webservice;
+use Psr\Log\LoggerInterface;
 use ReflectionMethod;
 use Throwable;
 
@@ -39,6 +40,7 @@ final class Kernel
         private readonly Router $router,
         private readonly ContainerInterface $container,
         private readonly ArgumentResolver $arguments,
+        private readonly LoggerInterface $logger,
         array $middleware = [],
         private readonly array $config = [],
     ) {
@@ -50,18 +52,37 @@ final class Kernel
 
     public function handle(Request $request): Response
     {
+        $requestId = bin2hex(random_bytes(8));
+        $request = $request->withAttribute('request_id', $requestId);
+        $startedAt = microtime(true);
+
+        $this->logger->debug('Request received', [
+            'request_id' => $requestId,
+            'method' => $request->method,
+            'path' => $request->path,
+        ]);
+
         try {
             $match = $this->router->match($request);
             $request = $request->withAttribute('route', $match);
 
             $pipeline = new Pipeline($this->middleware);
-
-            return $pipeline->handle($request, fn (Request $request): Response => $this->runHandler($match, $request));
+            $response = $pipeline->handle($request, fn (Request $request): Response => $this->runHandler($match, $request));
         } catch (HttpException $exception) {
-            return $this->renderHttpException($exception);
+            $response = $this->renderHttpException($exception, $request);
         } catch (Throwable $exception) {
-            return $this->renderThrowable($exception);
+            $response = $this->renderThrowable($exception, $request);
         }
+
+        $this->logger->info('Request handled', [
+            'request_id' => $requestId,
+            'method' => $request->method,
+            'path' => $request->path,
+            'status' => $response->getStatus(),
+            'duration_ms' => round((microtime(true) - $startedAt) * 1000, 1),
+        ]);
+
+        return $response;
     }
 
     private function runHandler(RouteMatch $match, Request $request): Response
@@ -92,15 +113,32 @@ final class Kernel
         return new JsonResponse($result);
     }
 
-    private function renderHttpException(HttpException $exception): Response
+    private function renderHttpException(HttpException $exception, Request $request): Response
     {
+        $status = $exception->getStatusCode();
         $message = $exception->getMessage() !== ''
             ? $exception->getMessage()
             : 'Error';
 
+        // Server errors are real problems; 401/403 are security-relevant; other
+        // client errors are routine and logged quietly.
+        $level = match (true) {
+            $status >= 500 => 'error',
+            in_array($status, [401, 403], true) => 'warning',
+            default => 'info',
+        };
+
+        $this->logger->log($level, 'Request failed with {status}: {message}', [
+            'request_id' => $request->attribute('request_id'),
+            'method' => $request->method,
+            'path' => $request->path,
+            'status' => $status,
+            'message' => $message,
+        ]);
+
         $response = new JsonResponse(
-            ['error' => $message, 'status' => $exception->getStatusCode()],
-            $exception->getStatusCode(),
+            ['error' => $message, 'status' => $status],
+            $status,
         );
 
         foreach ($exception->getHeaders() as $name => $value) {
@@ -110,8 +148,18 @@ final class Kernel
         return $response;
     }
 
-    private function renderThrowable(Throwable $exception): Response
+    private function renderThrowable(Throwable $exception, Request $request): Response
     {
+        $this->logger->error('Unhandled exception: {message}', [
+            'request_id' => $request->attribute('request_id'),
+            'method' => $request->method,
+            'path' => $request->path,
+            'message' => $exception->getMessage(),
+            'exception' => $exception::class,
+            'file' => $exception->getFile() . ':' . $exception->getLine(),
+            'trace' => $exception->getTraceAsString(),
+        ]);
+
         $debug = (bool) ($this->config['debug'] ?? false);
 
         $payload = ['error' => 'Internal Server Error', 'status' => 500];

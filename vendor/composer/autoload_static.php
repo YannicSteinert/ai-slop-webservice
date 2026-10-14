@@ -15,6 +15,10 @@ class ComposerStaticInit27f85b9b839aca95af2b0da761fae232
         array (
             'RobRichards\\XMLSecLibs\\' => 23,
         ),
+        'P' => 
+        array (
+            'Psr\\Log\\' => 8,
+        ),
         'O' => 
         array (
             'OneLogin\\' => 9,
@@ -29,6 +33,10 @@ class ComposerStaticInit27f85b9b839aca95af2b0da761fae232
         'RobRichards\\XMLSecLibs\\' => 
         array (
             0 => __DIR__ . '/..' . '/robrichards/xmlseclibs/src',
+        ),
+        'Psr\\Log\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/psr/log/src',
         ),
         'OneLogin\\' => 
         array (

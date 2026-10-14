@@ -9,6 +9,8 @@ use bapersbw\Auth\Guards\SessionGuard;
 use bapersbw\Auth\Identity;
 use bapersbw\Auth\Session\ArraySession;
 use bapersbw\Http\Request;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * Boots the application with an in-memory session and lets tests drive it like
@@ -38,7 +40,7 @@ final class TestClient
      * @param array<string, mixed>|null         $config  Defaults to config/config.php.
      * @param array<string, class-string>|null   $modules Defaults to config/modules.php.
      */
-    public static function create(?array $config = null, ?array $modules = null): self
+    public static function create(?array $config = null, ?array $modules = null, ?LoggerInterface $logger = null): self
     {
         $root = dirname(__DIR__, 2);
         $config ??= require $root . '/config/config.php';
@@ -46,7 +48,9 @@ final class TestClient
 
         $session = new ArraySession();
 
-        return new self(new Application($config, $modules, $session), $session);
+        // Quiet by default so the suite writes no log files; pass a logger to
+        // assert on log output.
+        return new self(new Application($config, $modules, $session, $logger ?? new NullLogger()), $session);
     }
 
     /** Seed an authenticated session identity, bypassing the login flow. */
