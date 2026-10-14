@@ -20,6 +20,21 @@ return [
     ],
 
     /**
+     * Database. The target is MSSQL (driver 'sqlsrv', needs ext-pdo_sqlsrv).
+     * Use driver 'sqlite' with database ':memory:' or a file path for local
+     * development, or provide an explicit 'dsn' for anything else.
+     */
+    'database' => [
+        'driver' => 'sqlsrv',
+        'host' => 'localhost',
+        'port' => 1433,
+        'database' => 'app',
+        'username' => 'sa',
+        'password' => '',
+        'encrypt' => true, // adds Encrypt + TrustServerCertificate for sqlsrv
+    ],
+
+    /**
      * Session storage (used by NativeSession in production).
      */
     'session' => [

@@ -177,6 +177,58 @@ php tests/run.php
 ```
 
 Tests live in `tests/*_test.php` and register cases with `test('name', fn)`.
+The database tests run against an in-memory sqlite database when it is
+available; enable it locally with `php -d extension=pdo_sqlite tests/run.php`.
+
+## Database
+
+`Database\Connection` is a thin PDO wrapper. The target is **MSSQL** (driver
+`sqlsrv`, needs `ext-pdo_sqlsrv`); use `sqlite` for local development/tests, or
+an explicit `dsn`. Config lives in `config/config.php` → `database`.
+
+Data access goes through a `Database\Repository` base class — one table per
+repository, simple CRUD returning arrays (portable across MSSQL and sqlite). A
+repository only needs the `Connection`, so it autowires into a module's
+webservice:
+
+```php
+final class UsersRepository extends Repository
+{
+    protected function table(): string { return 'users'; }
+}
+
+// in a webservice:
+public function __construct(private UsersRepository $users) {}
+$this->users->find(5);
+$this->users->create(['username' => 'ada', 'email' => 'ada@example.test']);
+```
+
+The connection is lazy — nothing connects until a repository runs a query.
+
+## Migrations (module-owned)
+
+Each module owns its schema the same way it owns its routes. Put migration
+classes in the module's `Migrations/` folder:
+
+```
+src/Modules/Users/
+    UsersWebservice.php
+    UsersRepository.php
+    Migrations/
+        M0001_CreateUsersTable.php   implements Database\Migration (up/down)
+```
+
+They are discovered by convention from the module map, applied in module order
+then class-name order (prefix with `M0001_`, `M0002_`, …), and tracked in a
+`migrations` table so each run is one batch:
+
+```bash
+php bin/console migrate            # apply pending migrations
+php bin/console migrate:rollback   # roll back the most recent batch
+php bin/console migrate:status     # list migrations and whether they ran
+```
+
+Adding a module brings its own migrations automatically — no central registry.
 
 ## Running
 
@@ -203,9 +255,11 @@ location / { try_files $uri /index.php$is_args$args; }
 | `src/Http/` | `Request`, `Response` |
 | `src/Routing/` | `Router` (module map + attribute loader + matcher), `RouteMatch` |
 | `src/Container/` | autowiring DI container |
+| `src/Database/` | `Connection`, `Repository`, `Migration`, `Migrator` |
 | `src/Auth/` | `Identity`, `Session`, guards, `AuthManager`, LDAP/SAML providers |
 | `src/Logging/` | `LineLogger` (PSR-3) |
 | `src/Policy/` | `PolicyInterface`, `Gate`, `AuthenticatedPolicy` |
-| `src/Modules/` | the modules (`Users`, `Login`, …) |
+| `src/Modules/` | the modules — each with its webservice, repositories, `Migrations/` |
 | `src/Testing/` | `TestClient`, `TestResponse` |
+| `bin/console` | module-based migration runner |
 | `tests/` | test suite + runner |

@@ -9,6 +9,7 @@ use bapersbw\Auth\Session;
 use bapersbw\Auth\SessionGuard;
 use bapersbw\Auth\TokenGuard;
 use bapersbw\Container\Container;
+use bapersbw\Database\Connection;
 use bapersbw\Http\Request;
 use bapersbw\Http\Response;
 use bapersbw\Logging\LineLogger;
@@ -48,6 +49,9 @@ final class Application
             (string) ($config['logging']['level'] ?? 'debug'),
         );
         $container->instance(LoggerInterface::class, $logger);
+
+        // Lazy: the database only connects when a repository first uses it.
+        $container->bind(Connection::class, static fn () => new Connection((array) ($config['database'] ?? [])));
 
         $session ??= new Session(true, (array) ($config['session'] ?? []));
         $sessionGuard = new SessionGuard($session);

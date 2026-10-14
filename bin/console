@@ -1,0 +1,52 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * Module-based migration runner.
+ *
+ *   php bin/console migrate            apply all pending module migrations
+ *   php bin/console migrate:rollback   roll back the most recent batch
+ *   php bin/console migrate:status     show each migration and whether it ran
+ *
+ * Migrations are discovered per module (Modules/<Name>/Migrations/) from the
+ * module map in config/modules.php.
+ */
+
+use bapersbw\Database\Connection;
+use bapersbw\Database\Migrator;
+use bapersbw\Logging\LineLogger;
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+$config = require dirname(__DIR__) . '/config/config.php';
+$modules = require dirname(__DIR__) . '/config/modules.php';
+
+$command = $argv[1] ?? 'migrate:status';
+
+$connection = new Connection((array) ($config['database'] ?? []));
+$migrator = new Migrator($connection, new LineLogger('php://stdout', 'info'));
+$discovered = Migrator::discover($modules);
+
+switch ($command) {
+    case 'migrate':
+        $ran = $migrator->migrate($discovered);
+        echo $ran === [] ? "Nothing to migrate.\n" : 'Applied: ' . implode(', ', $ran) . "\n";
+        break;
+
+    case 'migrate:rollback':
+        $rolled = $migrator->rollback($discovered);
+        echo $rolled === [] ? "Nothing to roll back.\n" : 'Rolled back: ' . implode(', ', $rolled) . "\n";
+        break;
+
+    case 'migrate:status':
+        foreach ($migrator->status($discovered) as $row) {
+            printf("[%s] %s/%s\n", $row['applied'] ? 'x' : ' ', $row['module'], $row['name']);
+        }
+        break;
+
+    default:
+        fwrite(STDERR, "Unknown command [$command].\n");
+        exit(1);
+}
