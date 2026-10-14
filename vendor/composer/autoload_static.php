@@ -11,12 +11,28 @@ class ComposerStaticInit27f85b9b839aca95af2b0da761fae232
         array (
             'bapersbw\\' => 9,
         ),
+        'R' => 
+        array (
+            'RobRichards\\XMLSecLibs\\' => 23,
+        ),
+        'O' => 
+        array (
+            'OneLogin\\' => 9,
+        ),
     );
 
     public static $prefixDirsPsr4 = array (
         'bapersbw\\' => 
         array (
             0 => __DIR__ . '/../..' . '/src',
+        ),
+        'RobRichards\\XMLSecLibs\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/robrichards/xmlseclibs/src',
+        ),
+        'OneLogin\\' => 
+        array (
+            0 => __DIR__ . '/..' . '/onelogin/php-saml/src',
         ),
     );
 

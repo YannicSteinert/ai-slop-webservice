@@ -6,5 +6,7 @@
             "bapersbw\\": "src/"
         }
     },
-    "require": {}
+    "require": {
+        "onelogin/php-saml": "^4.1"
+    }
 }

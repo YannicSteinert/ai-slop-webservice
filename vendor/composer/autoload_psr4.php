@@ -7,4 +7,6 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'bapersbw\\' => array($baseDir . '/src'),
+    'RobRichards\\XMLSecLibs\\' => array($vendorDir . '/robrichards/xmlseclibs/src'),
+    'OneLogin\\' => array($vendorDir . '/onelogin/php-saml/src'),
 );

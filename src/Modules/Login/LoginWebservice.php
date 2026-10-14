@@ -5,60 +5,83 @@ declare(strict_types=1);
 namespace bapersbw\Modules\Login;
 
 use bapersbw\Attributes\Route;
-use bapersbw\Exceptions\HttpException;
+use bapersbw\Auth\AuthManager;
+use bapersbw\Auth\Exceptions\AuthenticationException;
+use bapersbw\Auth\Guards\SessionGuard;
+use bapersbw\Auth\Identity;
 use bapersbw\Http\Response;
 use bapersbw\Webservice\Webservice;
 
 /**
- * Login module, mounted under "login".
+ * Outward authentication module, mounted under "login".
  *
- * It decides between SAML and LDAP and redirects the client to the right flow.
- * Both providers are stubbed for now — the branching and redirect contract are
- * in place so the real implementations drop straight in behind {@see start()}.
+ * It orchestrates the provider flow but stays thin: provider selection lives in
+ * {@see AuthManager} (config-driven), session handling in {@see SessionGuard},
+ * and the SAML/LDAP mechanics in the providers themselves.
  *
- *   GET /login                 -> start()   (picks provider, redirects)
- *   GET /login/{provider}      -> provider() (explicit provider choice)
+ *   GET  /login                       -> start()     begin login with the default provider
+ *   GET  /login/logout                -> logout()
+ *   GET  /login/whoami                -> whoami()     current session identity (debug/test aid)
+ *   GET  /login/{provider}            -> begin()      begin login with a named provider
+ *   GET  /login/{provider}/callback   -> callback()   (SAML redirect binding)
+ *   POST /login/{provider}/callback   -> callback()   (SAML POST binding / LDAP form)
+ *
+ * The literal routes are declared before the "{provider}" route so they win on
+ * match (the router returns the first matching route in declaration order).
  */
 final class LoginWebservice extends Webservice
 {
-    private const PROVIDERS = ['saml', 'ldap'];
+    public function __construct(
+        private readonly AuthManager $auth,
+        private readonly SessionGuard $guard,
+    ) {
+    }
 
     #[Route('GET', '/')]
     public function start(): Response
     {
-        $provider = $this->resolveProvider((string) $this->request->query('provider', $this->defaultProvider()));
+        return $this->auth->default()->initiate($this->request);
+    }
 
-        return $this->redirectToProvider($provider);
+    #[Route('GET', '/logout')]
+    public function logout(): Response
+    {
+        $this->guard->logout();
+
+        return $this->ok(['logged_out' => true]);
+    }
+
+    #[Route('GET', '/whoami')]
+    public function whoami(): Response
+    {
+        $identity = $this->request->attribute('identity');
+        if (!$identity instanceof Identity) {
+            throw new AuthenticationException('Not signed in.');
+        }
+
+        return $this->ok(['identity' => $identity]);
     }
 
     #[Route('GET', '/{provider}')]
-    public function provider(string $provider): Response
+    public function begin(string $provider): Response
     {
-        return $this->redirectToProvider($this->resolveProvider($provider));
+        return $this->auth->provider($provider)->initiate($this->request);
     }
 
-    private function redirectToProvider(string $provider): Response
+    #[Route('GET', '/{provider}/callback')]
+    #[Route('POST', '/{provider}/callback')]
+    public function callback(string $provider): Response
     {
-        // TODO: implement the real SAML / LDAP flows. For now we redirect to a
-        // placeholder endpoint so the routing + provider selection is exercised.
-        return match ($provider) {
-            'saml' => $this->redirect('/login/saml/initiate'),
-            'ldap' => $this->redirect('/login/ldap/form'),
-        };
-    }
+        $identity = $this->auth->provider($provider)->complete($this->request);
 
-    private function resolveProvider(string $provider): string
-    {
-        $provider = strtolower($provider);
-        if (!in_array($provider, self::PROVIDERS, true)) {
-            throw new HttpException(400, "Unsupported login provider [$provider].");
-        }
+        // Establish the outward session.
+        $this->guard->login($identity);
 
-        return $provider;
-    }
-
-    private function defaultProvider(): string
-    {
-        return 'saml';
+        // API-first: return the identity as JSON. A browser-facing deployment
+        // can switch this to a redirect to `return_to` instead.
+        return $this->ok([
+            'authenticated' => true,
+            'identity' => $identity,
+        ]);
     }
 }
