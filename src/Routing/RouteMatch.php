@@ -4,17 +4,24 @@ declare(strict_types=1);
 
 namespace bapersbw\Routing;
 
+use bapersbw\Attributes\Authorize;
+
 /**
- * The result of successfully routing a request: which route was hit, under
- * which module, and the parameter values extracted from the path.
+ * The result of routing a request: the handler to invoke, the path parameters
+ * extracted for it, and the policies guarding it.
  */
 final class RouteMatch
 {
-    /** @param array<string, string> $parameters */
+    /**
+     * @param class-string          $webserviceClass
+     * @param array<string, string> $parameters
+     * @param list<Authorize>       $policies
+     */
     public function __construct(
-        public readonly string $module,
-        public readonly RouteDefinition $route,
-        public readonly array $parameters = [],
+        public readonly string $webserviceClass,
+        public readonly string $handlerMethod,
+        public readonly array $parameters,
+        public readonly array $policies,
     ) {
     }
 }

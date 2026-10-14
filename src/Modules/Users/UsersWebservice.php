@@ -6,7 +6,7 @@ namespace bapersbw\Modules\Users;
 
 use bapersbw\Attributes\Route;
 use bapersbw\Http\Response;
-use bapersbw\Webservice\Webservice;
+use bapersbw\Webservice;
 
 /**
  * Example module. Mounted under "users" in config/modules.php, so every route

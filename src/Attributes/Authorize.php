@@ -13,7 +13,7 @@ use Attribute;
  * individual methods (applies to that route only); both are combined.
  *
  * Policies are resolved by name through the {@see \bapersbw\Policy\Gate}. The
- * enforcement itself lives in {@see \bapersbw\Policy\AuthorizationMiddleware},
+ * enforcement itself lives in the Kernel (via the {@see \bapersbw\Policy\Gate}),
  * so adding authorization later is purely additive: register a policy on the
  * Gate and annotate the routes that need it.
  *

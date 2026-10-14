@@ -2,10 +2,6 @@
 
 declare(strict_types=1);
 
-use bapersbw\Auth\AuthenticationMiddleware;
-use bapersbw\Auth\Session\SessionMiddleware;
-use bapersbw\Policy\AuthorizationMiddleware;
-
 /**
  * Application configuration.
  */
@@ -21,20 +17,6 @@ return [
     'logging' => [
         'path' => dirname(__DIR__) . '/storage/logs/app.log',
         'level' => 'debug',
-    ],
-
-    /**
-     * Global middleware, run in order around every request. Each entry is a
-     * class-string resolved through the container.
-     *
-     *   1. SessionMiddleware        start/persist the session
-     *   2. AuthenticationMiddleware resolve the identity (token, then session)
-     *   3. AuthorizationMiddleware  enforce #[Authorize] policies
-     */
-    'middleware' => [
-        SessionMiddleware::class,
-        AuthenticationMiddleware::class,
-        AuthorizationMiddleware::class,
     ],
 
     /**

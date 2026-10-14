@@ -10,53 +10,27 @@ use ReflectionNamedType;
 use RuntimeException;
 
 /**
- * A small, dependency-free service container with constructor autowiring.
- *
- * It is intentionally minimal: enough to instantiate webservices, middleware
- * and policies and wire their dependencies. Swap it for a PSR-11 container
- * later without touching the rest of the framework — the kernel only depends
- * on {@see ContainerInterface}.
+ * A tiny service container with constructor autowiring. Enough to build
+ * webservices and their dependencies; bind closures for anything that needs
+ * explicit construction.
  */
-final class Container implements ContainerInterface
+final class Container
 {
-    /** @var array<string, Closure(ContainerInterface): mixed> */
+    /** @var array<string, Closure(Container): mixed> */
     private array $factories = [];
 
     /** @var array<string, mixed> */
     private array $instances = [];
 
-    /** @var array<string, bool> */
-    private array $shared = [];
-
-    /**
-     * Bind an id to a factory.
-     *
-     * @param Closure(ContainerInterface): mixed $factory
-     */
-    public function bind(string $id, Closure $factory, bool $shared = false): void
+    /** @param Closure(Container): mixed $factory */
+    public function bind(string $id, Closure $factory): void
     {
         $this->factories[$id] = $factory;
-        $this->shared[$id] = $shared;
-        unset($this->instances[$id]);
-    }
-
-    /** @param Closure(ContainerInterface): mixed $factory */
-    public function singleton(string $id, Closure $factory): void
-    {
-        $this->bind($id, $factory, true);
     }
 
     public function instance(string $id, mixed $instance): void
     {
         $this->instances[$id] = $instance;
-        $this->shared[$id] = true;
-    }
-
-    public function has(string $id): bool
-    {
-        return isset($this->factories[$id])
-            || isset($this->instances[$id])
-            || class_exists($id);
     }
 
     public function get(string $id): mixed
@@ -66,20 +40,14 @@ final class Container implements ContainerInterface
         }
 
         if (isset($this->factories[$id])) {
-            $object = ($this->factories[$id])($this);
-        } else {
-            $object = $this->make($id);
+            return $this->instances[$id] = ($this->factories[$id])($this);
         }
 
-        if ($this->shared[$id] ?? false) {
-            $this->instances[$id] = $object;
-        }
-
-        return $object;
+        return $this->make($id);
     }
 
     /**
-     * Instantiate a concrete class, resolving its constructor dependencies.
+     * Instantiate a class, resolving constructor dependencies by type.
      *
      * @template T of object
      * @param class-string<T> $class
@@ -91,16 +59,10 @@ final class Container implements ContainerInterface
             throw new RuntimeException("Cannot resolve [$class]: class does not exist.");
         }
 
-        $reflection = new ReflectionClass($class);
-
-        if (!$reflection->isInstantiable()) {
-            throw new RuntimeException("Cannot instantiate [$class].");
-        }
-
-        $constructor = $reflection->getConstructor();
+        $constructor = (new ReflectionClass($class))->getConstructor();
         if ($constructor === null) {
             /** @var T */
-            return $reflection->newInstance();
+            return new $class();
         }
 
         $arguments = [];
@@ -109,20 +71,14 @@ final class Container implements ContainerInterface
 
             if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
                 $arguments[] = $this->get($type->getName());
-                continue;
-            }
-
-            if ($parameter->isDefaultValueAvailable()) {
+            } elseif ($parameter->isDefaultValueAvailable()) {
                 $arguments[] = $parameter->getDefaultValue();
-                continue;
+            } else {
+                throw new RuntimeException("Cannot resolve parameter \${$parameter->getName()} of [$class].");
             }
-
-            throw new RuntimeException(
-                "Cannot resolve parameter \${$parameter->getName()} of [$class].",
-            );
         }
 
         /** @var T */
-        return $reflection->newInstanceArgs($arguments);
+        return new $class(...$arguments);
     }
 }

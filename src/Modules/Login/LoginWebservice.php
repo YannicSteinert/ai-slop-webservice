@@ -4,32 +4,28 @@ declare(strict_types=1);
 
 namespace bapersbw\Modules\Login;
 
-use bapersbw\Attributes\Route;
 use bapersbw\Auth\AuthManager;
-use bapersbw\Auth\Exceptions\AuthenticationException;
-use bapersbw\Auth\Guards\SessionGuard;
 use bapersbw\Auth\Identity;
+use bapersbw\Auth\SessionGuard;
+use bapersbw\Attributes\Route;
+use bapersbw\Exceptions\HttpException;
 use bapersbw\Http\Response;
-use bapersbw\Webservice\Webservice;
+use bapersbw\Webservice;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
- * Outward authentication module, mounted under "login".
+ * Outward authentication module, mounted under "login". Thin: provider
+ * selection lives in {@see AuthManager} (config-driven), session handling in
+ * {@see SessionGuard}, SAML/LDAP mechanics in the providers.
  *
- * It orchestrates the provider flow but stays thin: provider selection lives in
- * {@see AuthManager} (config-driven), session handling in {@see SessionGuard},
- * and the SAML/LDAP mechanics in the providers themselves.
+ *   GET  /login                       begin login with the default provider
+ *   GET  /login/logout                clear the session
+ *   GET  /login/whoami                current identity (401 if none)
+ *   GET  /login/{provider}            begin login with a named provider
+ *   GET|POST /login/{provider}/callback   complete login -> session
  *
- *   GET  /login                       -> start()     begin login with the default provider
- *   GET  /login/logout                -> logout()
- *   GET  /login/whoami                -> whoami()     current session identity (debug/test aid)
- *   GET  /login/{provider}            -> begin()      begin login with a named provider
- *   GET  /login/{provider}/callback   -> callback()   (SAML redirect binding)
- *   POST /login/{provider}/callback   -> callback()   (SAML POST binding / LDAP form)
- *
- * The literal routes are declared before the "{provider}" route so they win on
- * match (the router returns the first matching route in declaration order).
+ * Literal routes are declared before "{provider}" so they win on match.
  */
 final class LoginWebservice extends Webservice
 {
@@ -54,11 +50,7 @@ final class LoginWebservice extends Webservice
     {
         $identity = $this->guard->user();
         $this->guard->logout();
-
-        $this->logger->info('User logged out', [
-            'request_id' => $this->request->attribute('request_id'),
-            'subject' => $identity?->id,
-        ]);
+        $this->logger->info('User logged out', ['subject' => $identity?->id]);
 
         return $this->ok(['logged_out' => true]);
     }
@@ -68,7 +60,7 @@ final class LoginWebservice extends Webservice
     {
         $identity = $this->request->attribute('identity');
         if (!$identity instanceof Identity) {
-            throw new AuthenticationException('Not signed in.');
+            throw new HttpException(401, 'Not signed in.');
         }
 
         return $this->ok(['identity' => $identity]);
@@ -86,31 +78,21 @@ final class LoginWebservice extends Webservice
     {
         try {
             $identity = $this->auth->provider($provider)->complete($this->request);
-        } catch (AuthenticationException $e) {
+        } catch (HttpException $e) {
             $this->logger->warning('Login failed via {provider}: {reason}', [
-                'request_id' => $this->request->attribute('request_id'),
                 'provider' => $provider,
                 'reason' => $e->getMessage(),
             ]);
-
             throw $e;
         }
 
-        // Establish the outward session.
         $this->guard->login($identity);
-
         $this->logger->info('Login succeeded via {provider}', [
-            'request_id' => $this->request->attribute('request_id'),
             'provider' => $provider,
             'subject' => $identity->id,
             'type' => $identity->type,
         ]);
 
-        // API-first: return the identity as JSON. A browser-facing deployment
-        // can switch this to a redirect to `return_to` instead.
-        return $this->ok([
-            'authenticated' => true,
-            'identity' => $identity,
-        ]);
+        return $this->ok(['authenticated' => true, 'identity' => $identity]);
     }
 }

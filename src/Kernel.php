@@ -4,50 +4,48 @@ declare(strict_types=1);
 
 namespace bapersbw;
 
-use bapersbw\Container\ContainerInterface;
+use bapersbw\Auth\Session;
+use bapersbw\Auth\SessionGuard;
+use bapersbw\Auth\TokenGuard;
+use bapersbw\Container\Container;
 use bapersbw\Exceptions\HttpException;
-use bapersbw\Http\JsonResponse;
 use bapersbw\Http\Request;
 use bapersbw\Http\Response;
-use bapersbw\Middleware\MiddlewareInterface;
-use bapersbw\Middleware\Pipeline;
-use bapersbw\Routing\ArgumentResolver;
+use bapersbw\Policy\Gate;
 use bapersbw\Routing\RouteMatch;
 use bapersbw\Routing\Router;
-use bapersbw\Webservice\Webservice;
 use Psr\Log\LoggerInterface;
 use ReflectionMethod;
+use ReflectionNamedType;
 use Throwable;
 
 /**
- * The application entry point. Given a Request it:
+ * Handles a request end to end:
  *
- *   1. routes it to a webservice method (module + attribute route);
- *   2. runs the middleware pipeline (policies, auth, ... plug in here);
- *   3. invokes the handler, binding its arguments from the path and container;
- *   4. normalises the return value and any thrown HttpException into a Response.
+ *   1. start the session;
+ *   2. resolve the identity (inward token first, then outward session);
+ *   3. route to a module + attribute route;
+ *   4. enforce the route's #[Authorize] policies;
+ *   5. invoke the handler, binding arguments from the path and container;
+ *   6. normalise the result and any HttpException into a Response.
+ *
+ * Steps 1, 2 and 4 used to be separate middleware; they are folded in here to
+ * keep the framework small. New cross-cutting behaviour is added by editing
+ * this flow.
  */
 final class Kernel
 {
-    /** @var list<MiddlewareInterface> */
-    private array $middleware;
-
-    /**
-     * @param list<class-string<MiddlewareInterface>> $middleware Global middleware, in order.
-     * @param array<string, mixed>                    $config
-     */
+    /** @param array<string, mixed> $config */
     public function __construct(
         private readonly Router $router,
-        private readonly ContainerInterface $container,
-        private readonly ArgumentResolver $arguments,
+        private readonly Container $container,
         private readonly LoggerInterface $logger,
-        array $middleware = [],
+        private readonly Session $session,
+        private readonly SessionGuard $sessionGuard,
+        private readonly TokenGuard $tokenGuard,
+        private readonly Gate $gate,
         private readonly array $config = [],
     ) {
-        $this->middleware = array_map(
-            fn (string $class): MiddlewareInterface => $this->container->get($class),
-            $middleware,
-        );
     }
 
     public function handle(Request $request): Response
@@ -62,17 +60,9 @@ final class Kernel
             'path' => $request->path,
         ]);
 
-        try {
-            $match = $this->router->match($request);
-            $request = $request->withAttribute('route', $match);
-
-            $pipeline = new Pipeline($this->middleware);
-            $response = $pipeline->handle($request, fn (Request $request): Response => $this->runHandler($match, $request));
-        } catch (HttpException $exception) {
-            $response = $this->renderHttpException($exception, $request);
-        } catch (Throwable $exception) {
-            $response = $this->renderThrowable($exception, $request);
-        }
+        $this->session->start();
+        $response = $this->process($request);
+        $this->session->save();
 
         $this->logger->info('Request handled', [
             'request_id' => $requestId,
@@ -85,90 +75,145 @@ final class Kernel
         return $response;
     }
 
-    private function runHandler(RouteMatch $match, Request $request): Response
+    private function process(Request $request): Response
+    {
+        try {
+            $identity = $this->tokenGuard->resolve($request) ?? $this->sessionGuard->user();
+            if ($identity !== null) {
+                $request = $request->withAttribute('identity', $identity);
+            }
+
+            $match = $this->router->match($request);
+            $this->enforcePolicies($match, $request);
+
+            return $this->dispatch($match, $request);
+        } catch (HttpException $e) {
+            return $this->renderHttpException($e, $request);
+        } catch (Throwable $e) {
+            return $this->renderThrowable($e, $request);
+        }
+    }
+
+    private function enforcePolicies(RouteMatch $match, Request $request): void
+    {
+        foreach ($match->policies as $authorize) {
+            if (!$this->gate->allows($authorize->policy, $request, $authorize->arguments)) {
+                $this->logger->warning('Authorization denied by policy {policy}', [
+                    'request_id' => $request->attribute('request_id'),
+                    'policy' => $authorize->policy,
+                    'path' => $request->path,
+                ]);
+
+                throw new HttpException(403, "Denied by policy [{$authorize->policy}].");
+            }
+        }
+    }
+
+    private function dispatch(RouteMatch $match, Request $request): Response
     {
         /** @var Webservice $webservice */
-        $webservice = $this->container->get($match->route->webserviceClass);
+        $webservice = $this->container->get($match->webserviceClass);
         $webservice->withContext($request, $this->container);
 
-        $method = new ReflectionMethod($webservice, $match->route->handlerMethod);
-        $arguments = $this->arguments->resolve($method, $match->parameters, $request);
+        $method = new ReflectionMethod($webservice, $match->handlerMethod);
+        $arguments = $this->resolveArguments($method, $match->parameters, $request);
 
         $result = $method->invokeArgs($webservice, $arguments);
 
-        return $this->toResponse($result);
+        return match (true) {
+            $result instanceof Response => $result,
+            $result === null => new Response('', 204),
+            default => Response::json($result),
+        };
     }
 
-    private function toResponse(mixed $result): Response
+    /**
+     * Bind handler arguments by name from the path (cast to the declared scalar
+     * type), the Request by type hint, or the container for other classes.
+     *
+     * @param array<string, string> $parameters
+     * @return list<mixed>
+     */
+    private function resolveArguments(ReflectionMethod $method, array $parameters, Request $request): array
     {
-        if ($result instanceof Response) {
-            return $result;
+        $arguments = [];
+
+        foreach ($method->getParameters() as $parameter) {
+            $name = $parameter->getName();
+            $type = $parameter->getType();
+
+            if (array_key_exists($name, $parameters)) {
+                $arguments[] = $this->cast($parameters[$name], $type);
+            } elseif ($type instanceof ReflectionNamedType && $type->getName() === Request::class) {
+                $arguments[] = $request;
+            } elseif ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
+                $arguments[] = $this->container->get($type->getName());
+            } elseif ($parameter->isDefaultValueAvailable()) {
+                $arguments[] = $parameter->getDefaultValue();
+            } else {
+                $arguments[] = null;
+            }
         }
 
-        if ($result === null) {
-            return new Response('', 204);
-        }
-
-        // Anything else is treated as a JSON payload.
-        return new JsonResponse($result);
+        return $arguments;
     }
 
-    private function renderHttpException(HttpException $exception, Request $request): Response
+    private function cast(string $value, ?ReflectionNamedType $type): mixed
     {
-        $status = $exception->getStatusCode();
-        $message = $exception->getMessage() !== ''
-            ? $exception->getMessage()
-            : 'Error';
+        if (!$type instanceof ReflectionNamedType || !$type->isBuiltin()) {
+            return $value;
+        }
 
-        // Server errors are real problems; 401/403 are security-relevant; other
-        // client errors are routine and logged quietly.
+        return match ($type->getName()) {
+            'int' => (int) $value,
+            'float' => (float) $value,
+            'bool' => filter_var($value, FILTER_VALIDATE_BOOLEAN),
+            default => $value,
+        };
+    }
+
+    private function renderHttpException(HttpException $e, Request $request): Response
+    {
+        $status = $e->getStatusCode();
+        $message = $e->getMessage() !== '' ? $e->getMessage() : 'Error';
+
         $level = match (true) {
             $status >= 500 => 'error',
             in_array($status, [401, 403], true) => 'warning',
             default => 'info',
         };
-
         $this->logger->log($level, 'Request failed with {status}: {message}', [
             'request_id' => $request->attribute('request_id'),
-            'method' => $request->method,
             'path' => $request->path,
             'status' => $status,
             'message' => $message,
         ]);
 
-        $response = new JsonResponse(
-            ['error' => $message, 'status' => $status],
-            $status,
-        );
-
-        foreach ($exception->getHeaders() as $name => $value) {
+        $response = Response::json(['error' => $message, 'status' => $status], $status);
+        foreach ($e->getHeaders() as $name => $value) {
             $response->withHeader($name, $value);
         }
 
         return $response;
     }
 
-    private function renderThrowable(Throwable $exception, Request $request): Response
+    private function renderThrowable(Throwable $e, Request $request): Response
     {
         $this->logger->error('Unhandled exception: {message}', [
             'request_id' => $request->attribute('request_id'),
-            'method' => $request->method,
             'path' => $request->path,
-            'message' => $exception->getMessage(),
-            'exception' => $exception::class,
-            'file' => $exception->getFile() . ':' . $exception->getLine(),
-            'trace' => $exception->getTraceAsString(),
+            'message' => $e->getMessage(),
+            'exception' => $e::class,
+            'file' => $e->getFile() . ':' . $e->getLine(),
+            'trace' => $e->getTraceAsString(),
         ]);
 
-        $debug = (bool) ($this->config['debug'] ?? false);
-
         $payload = ['error' => 'Internal Server Error', 'status' => 500];
-        if ($debug) {
-            $payload['message'] = $exception->getMessage();
-            $payload['exception'] = $exception::class;
-            $payload['trace'] = explode("\n", $exception->getTraceAsString());
+        if ($this->config['debug'] ?? false) {
+            $payload['message'] = $e->getMessage();
+            $payload['exception'] = $e::class;
         }
 
-        return new JsonResponse($payload, 500);
+        return Response::json($payload, 500);
     }
 }

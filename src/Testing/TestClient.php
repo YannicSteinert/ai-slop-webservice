@@ -5,40 +5,37 @@ declare(strict_types=1);
 namespace bapersbw\Testing;
 
 use bapersbw\Application;
-use bapersbw\Auth\Guards\SessionGuard;
 use bapersbw\Auth\Identity;
-use bapersbw\Auth\Session\ArraySession;
+use bapersbw\Auth\Session;
+use bapersbw\Auth\SessionGuard;
 use bapersbw\Http\Request;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 /**
- * Boots the application with an in-memory session and lets tests drive it like
- * an HTTP client. Because each webservice is a self-contained API, a test can
- * spin up a client with only the modules it cares about.
+ * Boots the application with an in-memory session and drives it like an HTTP
+ * client. Each webservice is a self-contained API, so a test can boot with just
+ * the modules it needs.
  *
- * Example:
  *   $client = TestClient::create();
  *   $client->get('/users/5/show')->assertOk()->assertJsonContains(['id' => 5]);
- *
- *   // protected routes without going through a full login:
- *   $client->actingAs(new Identity('alice', roles: ['admin']))
- *          ->get('/login/whoami')->assertOk();
+ *   $client->actingAs(new Identity('alice', roles: ['admin']))->get('/protected');
+ *   $client->withToken('dev-token')->get('/users');
  */
 final class TestClient
 {
-    private readonly ArraySession $session;
+    /** @var array<string, string> */
+    private array $defaultHeaders = [];
 
     public function __construct(
         private readonly Application $app,
-        ArraySession $session,
+        private readonly Session $session,
     ) {
-        $this->session = $session;
     }
 
     /**
-     * @param array<string, mixed>|null         $config  Defaults to config/config.php.
-     * @param array<string, class-string>|null   $modules Defaults to config/modules.php.
+     * @param array<string, mixed>|null       $config  Defaults to config/config.php.
+     * @param array<string, class-string>|null $modules Defaults to config/modules.php.
      */
     public static function create(?array $config = null, ?array $modules = null, ?LoggerInterface $logger = null): self
     {
@@ -46,10 +43,8 @@ final class TestClient
         $config ??= require $root . '/config/config.php';
         $modules ??= require $root . '/config/modules.php';
 
-        $session = new ArraySession();
+        $session = new Session(native: false);
 
-        // Quiet by default so the suite writes no log files; pass a logger to
-        // assert on log output.
         return new self(new Application($config, $modules, $session, $logger ?? new NullLogger()), $session);
     }
 
@@ -62,7 +57,7 @@ final class TestClient
         return $this;
     }
 
-    /** Send a bearer token on the next request (inward/OAuth2 path). */
+    /** Send a bearer token on subsequent requests (inward/OAuth2 path). */
     public function withToken(string $token): self
     {
         $this->defaultHeaders['authorization'] = 'Bearer ' . $token;
@@ -70,21 +65,13 @@ final class TestClient
         return $this;
     }
 
-    /** @var array<string, string> */
-    private array $defaultHeaders = [];
-
     /**
      * @param array<string, mixed>  $body
      * @param array<string, string> $query
      * @param array<string, string> $headers
      */
-    public function request(
-        string $method,
-        string $path,
-        array $body = [],
-        array $query = [],
-        array $headers = [],
-    ): TestResponse {
+    public function request(string $method, string $path, array $body = [], array $query = [], array $headers = []): TestResponse
+    {
         $request = new Request(
             method: strtoupper($method),
             path: $path,

@@ -17,7 +17,7 @@ use Attribute;
  *
  * Example:
  *   #[Route('GET', '/{user_id}/show')]
- *   #[Route(HttpMethod::GET, '/{group_id}/users/{user_id}')]
+ *   #[Route('GET', '/{group_id}/users/{user_id}')]
  */
 #[Attribute(Attribute::TARGET_METHOD | Attribute::IS_REPEATABLE)]
 final class Route
@@ -26,7 +26,7 @@ final class Route
     public readonly string $method;
 
     /**
-     * @param string $method HTTP verb (GET, POST, ...) or an HttpMethod case.
+     * @param string $method HTTP verb (GET, POST, ...).
      * @param string $path   Module-relative path, e.g. "/{user_id}/show".
      * @param string|null $name Optional unique route name for reverse lookups.
      */

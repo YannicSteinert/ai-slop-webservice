@@ -5,17 +5,31 @@ declare(strict_types=1);
 namespace bapersbw\Http;
 
 /**
- * Base HTTP response. Specialised responses (JSON, redirect) extend this.
- * A response is a plain value object; the kernel calls {@see send()} once.
+ * HTTP response value object. JSON and redirect responses are built with the
+ * static factories rather than separate classes.
  */
-class Response
+final class Response
 {
     /** @param array<string, string> $headers */
     public function __construct(
-        protected string $body = '',
-        protected int $status = 200,
-        protected array $headers = [],
+        private string $body = '',
+        private int $status = 200,
+        private array $headers = [],
     ) {
+    }
+
+    public static function json(mixed $data, int $status = 200): self
+    {
+        return new self(
+            json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            $status,
+            ['Content-Type' => 'application/json'],
+        );
+    }
+
+    public static function redirect(string $location, int $status = 302): self
+    {
+        return new self('', $status, ['Location' => $location]);
     }
 
     public function getStatus(): int
@@ -34,14 +48,7 @@ class Response
         return $this->headers;
     }
 
-    public function withStatus(int $status): static
-    {
-        $this->status = $status;
-
-        return $this;
-    }
-
-    public function withHeader(string $name, string $value): static
+    public function withHeader(string $name, string $value): self
     {
         $this->headers[$name] = $value;
 

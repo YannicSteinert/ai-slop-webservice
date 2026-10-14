@@ -9,13 +9,15 @@ policies are wired once and stay out of your way.
 ```
 public/index.php → Application (composition root)
    └─ Kernel::handle(Request)
+        ├─ start session
+        ├─ resolve identity             token guard, then session guard
         ├─ Router::match()              resolve module → match attribute route
-        ├─ Pipeline (middleware)
-        │     ├─ SessionMiddleware        start / persist session
-        │     ├─ AuthenticationMiddleware resolve identity (token, then session)
-        │     └─ AuthorizationMiddleware  enforce #[Authorize] policies
-        └─ handler invocation           bind args from path + container → Response
+        ├─ enforce #[Authorize] policies via the Gate
+        └─ invoke handler               bind args from path + container → Response
 ```
+
+These steps live directly in the Kernel (no middleware layer) to keep the
+framework small; new cross-cutting behaviour is added by editing that flow.
 
 The URL is read as `/{module}/{...rest}`:
 
@@ -58,8 +60,8 @@ Two surfaces, selected per request by the guards:
 | **Outward** | humans | SAML (prod) / LDAP (dev & fallback), session cookie | `SessionGuard` |
 | **Inward** | other services (e.g. the onboarding app) | OAuth2 bearer token | `TokenGuard` |
 
-`AuthenticationMiddleware` *resolves* the identity (inward token first, then the
-session) and attaches it to the request; it never rejects. Rejection is a
+The Kernel *resolves* the identity (inward token first, then the session) and
+attaches it to the request; it never rejects on its own. Rejection is a
 **policy** decision, keeping resolution and enforcement separate.
 
 ### Outward login (`/login`)
@@ -94,10 +96,9 @@ GET  /login/whoami               current identity (401 if none)
 
 ### Inward OAuth2
 
-Send `Authorization: Bearer <token>`. The dev `StaticTokenValidator` maps tokens
-from `config` → `oauth2.tokens` to client identities. Swap in OAuth2
-introspection or JWT verification by binding a different `TokenValidatorInterface`
-— nothing else changes.
+Send `Authorization: Bearer <token>`. `TokenGuard` maps tokens from `config` →
+`oauth2.tokens` to client identities. To use real OAuth2 (introspection or JWT)
+in production, replace `TokenGuard` — it is the single seam for inward auth.
 
 ## Policies (authorization)
 
@@ -114,7 +115,7 @@ Declarative and off by default:
 #[Authorize('users.view')]               // a custom policy
 ```
 
-`AuthorizationMiddleware` enforces them (403 on denial). Routes without
+The Kernel enforces them via the `Gate` (403 on denial). Routes without
 `#[Authorize]` are unaffected.
 
 ## Logging
@@ -139,8 +140,7 @@ records. Logging is wired at the points that matter:
 | Kernel | error | unhandled exception (message, class, file, trace) |
 | Kernel | warning / info | handled `HttpException` (401/403 warn, other 4xx info, 5xx error) |
 | LoginWebservice | info / warning | login succeeded / failed; logout |
-| AuthorizationMiddleware | warning | policy denial (policy, path, subject) |
-| AuthenticationMiddleware | debug | identity resolved (guard, subject) |
+| Kernel | warning | policy denial (policy, path) |
 
 Example:
 
@@ -197,17 +197,15 @@ location / { try_files $uri /index.php$is_args$args; }
 | Path | Responsibility |
 |---|---|
 | `src/Application.php` | composition root (wires everything from config) |
-| `src/Kernel.php` | request orchestration |
+| `src/Kernel.php` | request orchestration (session, auth, routing, policies, dispatch) |
+| `src/Webservice.php` | abstract base class every module extends |
 | `src/Attributes/` | `Route`, `Authorize` |
-| `src/Http/` | `Request`, `Response`, `JsonResponse`, `RedirectResponse`, `HttpMethod` |
-| `src/Routing/` | `Router`, `AttributeRouteLoader`, `RouteDefinition`, `ArgumentResolver` |
-| `src/Module/` | `ModuleRegistry` |
+| `src/Http/` | `Request`, `Response` |
+| `src/Routing/` | `Router` (module map + attribute loader + matcher), `RouteMatch` |
 | `src/Container/` | autowiring DI container |
-| `src/Middleware/` | `MiddlewareInterface`, `Pipeline` |
-| `src/Auth/` | identity, sessions, guards, SAML/LDAP providers, OAuth2 |
+| `src/Auth/` | `Identity`, `Session`, guards, `AuthManager`, LDAP/SAML providers |
 | `src/Logging/` | `LineLogger` (PSR-3) |
-| `src/Policy/` | `PolicyInterface`, `Gate`, `AuthorizationMiddleware`, built-in policies |
-| `src/Webservice/` | abstract `Webservice` base class |
+| `src/Policy/` | `PolicyInterface`, `Gate`, `AuthenticatedPolicy` |
 | `src/Modules/` | the modules (`Users`, `Login`, …) |
 | `src/Testing/` | `TestClient`, `TestResponse` |
 | `tests/` | test suite + runner |
