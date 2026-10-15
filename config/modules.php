@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use bapersbw\Modules\Login\LoginWebservice;
+use bapersbw\Modules\OAuth\OAuthWebservice;
 use bapersbw\Modules\Users\UsersWebservice;
 
 /**
@@ -14,4 +15,5 @@ use bapersbw\Modules\Users\UsersWebservice;
 return [
     'users' => UsersWebservice::class,
     'login' => LoginWebservice::class,
+    'oauth' => OAuthWebservice::class,
 ];

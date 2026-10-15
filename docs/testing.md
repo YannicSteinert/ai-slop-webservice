@@ -83,10 +83,14 @@ use bapersbw\Auth\Identity;
 $client->actingAs(new Identity('alice', roles: ['admin']))
        ->get('/protected')->assertOk();
 
-// Send an inward OAuth2 bearer token:
-$client->withToken('dev-token-onboarding')
+// Send an inward OAuth2 bearer token (obtained from POST /oauth/token):
+$client->withToken($accessToken)
        ->get('/users')->assertOk();
 ```
+
+> Inward tokens are DB-backed and short-lived, so testing the inward path needs
+> a database (and the `oauth_tokens` table). See
+> [`tests/oauth_test.php`](../tests/oauth_test.php) for the full flow on sqlite.
 
 ## Assertions — `TestResponse`
 

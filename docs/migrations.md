@@ -70,6 +70,10 @@ php bin/console migrate:rollback   # roll back the most recent batch
 php bin/console migrate:status     # list every migration and whether it ran
 ```
 
+The same console also hosts OAuth admin commands —
+`oauth:client:create "<name>"` and `oauth:purge` (see
+[Authentication](authentication.md)).
+
 `migrate:status` output:
 
 ```

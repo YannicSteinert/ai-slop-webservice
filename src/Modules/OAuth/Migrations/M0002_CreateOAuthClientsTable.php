@@ -1,0 +1,35 @@
+<?php
+
+declare(strict_types=1);
+
+namespace bapersbw\Modules\OAuth\Migrations;
+
+use bapersbw\Database\Connection;
+use bapersbw\Database\Migration;
+
+/**
+ * Registered OAuth clients (MSSQL). The client secret is stored only as a
+ * password_hash; the plaintext is shown once, at creation time.
+ *
+ * Create clients with: php bin/console oauth:client:create "<name>"
+ */
+final class M0002_CreateOAuthClientsTable implements Migration
+{
+    public function up(Connection $db): void
+    {
+        $db->execute(<<<'SQL'
+            CREATE TABLE oauth_clients (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                client_id NVARCHAR(100) NOT NULL UNIQUE,
+                name NVARCHAR(200) NOT NULL,
+                secret_hash NVARCHAR(255) NOT NULL,
+                created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            )
+            SQL);
+    }
+
+    public function down(Connection $db): void
+    {
+        $db->execute("IF OBJECT_ID('oauth_clients', 'U') IS NOT NULL DROP TABLE oauth_clients");
+    }
+}

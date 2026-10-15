@@ -108,18 +108,16 @@ return [
     ],
 
     /**
-     * Inward (service-to-service) authentication: OAuth2 bearer tokens.
+     * Inward (service-to-service) authentication: OAuth2 client-credentials.
      *
-     * The dev validator maps the tokens below to client identities. Replace
-     * with OAuth2 introspection / JWT verification in production.
+     * A client POSTs its id + secret to /oauth/token and receives a short-lived
+     * bearer token (stored, hashed, in the oauth_tokens table). `ttl` is the
+     * token lifetime in seconds — keep it short.
+     *
+     * Clients live in the oauth_clients table. Create one with:
+     *   php bin/console oauth:client:create "My Service"
      */
     'oauth2' => [
-        'tokens' => [
-            'dev-token-onboarding' => [
-                'client_id' => 'onboarding-app',
-                'name' => 'Onboarding App',
-                'scopes' => ['users.read'],
-            ],
-        ],
+        'ttl' => 900, // 15 minutes
     ],
 ];

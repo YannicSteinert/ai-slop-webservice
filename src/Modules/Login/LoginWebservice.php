@@ -93,6 +93,7 @@ final class LoginWebservice extends Webservice
             'type' => $identity->type,
         ]);
 
+        // The session cookie keeps the user logged in for the session lifetime.
         return $this->ok(['authenticated' => true, 'identity' => $identity]);
     }
 }

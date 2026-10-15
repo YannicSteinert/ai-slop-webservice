@@ -98,11 +98,14 @@ GET  /login/whoami               current identity (401 if none)
   the IdP; `/login/saml/callback` is the ACS endpoint. Fill in the `saml.settings`
   (SP/IdP entity ids, ACS URL, IdP cert) to enable it.
 
-### Inward OAuth2
+### Inward OAuth2 (client-credentials, DB-backed)
 
-Send `Authorization: Bearer <token>`. `TokenGuard` maps tokens from `config` →
-`oauth2.tokens` to client identities. To use real OAuth2 (introspection or JWT)
-in production, replace `TokenGuard` — it is the single seam for inward auth.
+Services exchange a `client_id`/`client_secret` at `POST /oauth/token` for a
+short-lived bearer token (stored hashed in the `oauth_tokens` table), then send
+`Authorization: Bearer <token>`. `TokenGuard` validates it against the DB and
+rejects expired tokens; expired rows are purged by a trigger (MSSQL) or
+`php bin/console oauth:purge`. No scopes/roles — a token identifies the client.
+See [docs/authentication.md](docs/authentication.md#inward-oauth2-client-credentials-db-backed).
 
 ## Policies (authorization)
 
@@ -171,7 +174,7 @@ $client->post('/login/ldap/callback', ['username' => 'devuser', 'password' => 's
 $client->get('/login/whoami')->assertOk();            // session carried over
 
 $client->actingAs(new Identity('alice', roles: ['admin']))->get('/protected');
-$client->withToken('dev-token-onboarding')->get('/users');  // inward path
+$client->withToken($accessToken)->get('/users');  // inward path (token from /oauth/token)
 ```
 
 Run the suite:

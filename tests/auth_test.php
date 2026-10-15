@@ -56,14 +56,5 @@ test('actingAs seeds an identity without the login flow', function (): void {
         ->assertJsonContains(['identity' => ['id' => 'alice', 'display_name' => 'Alice']]);
 });
 
-test('inward OAuth2 bearer token resolves a client identity', function (): void {
-    client()
-        ->withToken('dev-token-onboarding')
-        ->get('/login/whoami')
-        ->assertOk()
-        ->assertJsonContains(['identity' => ['id' => 'onboarding-app', 'type' => 'client', 'provider' => 'oauth2']]);
-});
-
-test('an invalid bearer token does not authenticate', function (): void {
-    client()->withToken('not-a-real-token')->get('/login/whoami')->assertStatus(401);
-});
+// Inward OAuth2 (DB-backed, short-lived tokens) is covered end to end in
+// tests/oauth_test.php, which needs a database.

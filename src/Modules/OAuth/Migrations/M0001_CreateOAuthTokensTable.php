@@ -1,0 +1,50 @@
+<?php
+
+declare(strict_types=1);
+
+namespace bapersbw\Modules\OAuth\Migrations;
+
+use bapersbw\Database\Connection;
+use bapersbw\Database\Migration;
+
+/**
+ * Creates the oauth_tokens table (MSSQL) plus a self-purging trigger.
+ *
+ * Only a SHA-256 hash of each token is stored; `expires_at` is a unix timestamp
+ * so expiry comparisons are driver-agnostic.
+ *
+ * The AFTER INSERT trigger deletes expired rows whenever a new token is issued,
+ * keeping the table pruned without a scheduler. (The TokenGuard also rejects
+ * expired tokens, so cleanup is housekeeping, not a security control.)
+ */
+final class M0001_CreateOAuthTokensTable implements Migration
+{
+    public function up(Connection $db): void
+    {
+        // CREATE TRIGGER must be its own batch in MSSQL, so run two statements.
+        $db->execute(<<<'SQL'
+            CREATE TABLE oauth_tokens (
+                id INT IDENTITY(1,1) PRIMARY KEY,
+                token_hash CHAR(64) NOT NULL UNIQUE,
+                client_id NVARCHAR(100) NOT NULL,
+                expires_at BIGINT NOT NULL,
+                created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            )
+            SQL);
+
+        $db->execute(<<<'SQL'
+            CREATE TRIGGER trg_oauth_tokens_purge ON oauth_tokens AFTER INSERT AS
+            BEGIN
+                SET NOCOUNT ON;
+                DELETE FROM oauth_tokens
+                WHERE expires_at < DATEDIFF_BIG(SECOND, '1970-01-01', SYSUTCDATETIME());
+            END
+            SQL);
+    }
+
+    public function down(Connection $db): void
+    {
+        $db->execute("IF OBJECT_ID('trg_oauth_tokens_purge', 'TR') IS NOT NULL DROP TRIGGER trg_oauth_tokens_purge");
+        $db->execute("IF OBJECT_ID('oauth_tokens', 'U') IS NOT NULL DROP TABLE oauth_tokens");
+    }
+}

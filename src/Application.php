@@ -8,6 +8,7 @@ use bapersbw\Auth\AuthManager;
 use bapersbw\Auth\Session;
 use bapersbw\Auth\SessionGuard;
 use bapersbw\Auth\TokenGuard;
+use bapersbw\Auth\TokenStore;
 use bapersbw\Container\Container;
 use bapersbw\Database\Connection;
 use bapersbw\Http\Request;
@@ -55,9 +56,15 @@ final class Application
 
         $session ??= new Session(true, (array) ($config['session'] ?? []));
         $sessionGuard = new SessionGuard($session);
-        $tokenGuard = new TokenGuard((array) ($config['oauth2']['tokens'] ?? []));
 
-        // Bound so autowired webservices (e.g. LoginWebservice) receive them.
+        // Inward OAuth2: DB-backed, short-lived tokens. The Connection is lazy,
+        // so the token store only hits the database when a bearer token is used.
+        $oauth = (array) ($config['oauth2'] ?? []);
+        $tokenStore = new TokenStore($container->get(Connection::class), (int) ($oauth['ttl'] ?? 900));
+        $tokenGuard = new TokenGuard($tokenStore);
+
+        // Bound so autowired webservices receive them (e.g. the OAuth and Login modules).
+        $container->instance(TokenStore::class, $tokenStore);
         $container->instance(AuthManager::class, new AuthManager((array) ($config['auth'] ?? [])));
         $container->instance(SessionGuard::class, $sessionGuard);
 
