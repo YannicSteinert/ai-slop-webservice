@@ -28,7 +28,7 @@ final class M0003_CreateOAuthCodeAndRefreshTables implements Migration
                 code_hash CHAR(64) NOT NULL UNIQUE,
                 client_id NVARCHAR(100) NOT NULL,
                 redirect_uri NVARCHAR(2048) NOT NULL,
-                identity NVARCHAR(MAX) NOT NULL,
+                principal NVARCHAR(MAX) NOT NULL,
                 code_challenge NVARCHAR(255) NULL,
                 code_challenge_method NVARCHAR(10) NULL,
                 expires_at BIGINT NOT NULL,
@@ -41,7 +41,7 @@ final class M0003_CreateOAuthCodeAndRefreshTables implements Migration
                 id INT IDENTITY(1,1) PRIMARY KEY,
                 token_hash CHAR(64) NOT NULL UNIQUE,
                 client_id NVARCHAR(100) NOT NULL,
-                identity NVARCHAR(MAX) NOT NULL,
+                principal NVARCHAR(MAX) NOT NULL,
                 expires_at BIGINT NOT NULL,
                 created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
             )

@@ -13,8 +13,16 @@ a database (the connection is lazy); only DB-backed routes (OAuth) need it.
       the usual MSSQL-on-PHP requirement). Check: `php -m | grep sqlsrv`.
 - [ ] Document root points at **`public/`**; route non-file requests to
       `public/index.php`.
+      - IIS: the included `public/web.config` handles it (install the **URL
+        Rewrite** module).
       - Apache: the included `public/.htaccess` handles it.
       - nginx: `location / { try_files $uri /index.php$is_args$args; }`
+- [ ] Mounted under a sub-path (e.g. `/foo/ws/public/`)? Usually automatic (base
+      stripped from `SCRIPT_NAME`). If it resolves wrong, set config
+      `base_path` (e.g. `'/foo/ws/public'`), or `BASE_PATH` env.
+- [ ] **No URL Rewrite module / can't configure IIS?** Set
+      `base_path => '/foo/ws/public/index.php'` and route through the script:
+      `…/foo/ws/public/index.php/<module>/…` — no rewrite needed.
 - [ ] **`storage/logs/`** exists and is writable by the web server user.
 
 ## 2. Configuration (`config/config.php`)

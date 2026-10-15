@@ -10,6 +10,16 @@ return [
     'debug' => true,
 
     /**
+     * The URL path the app is mounted under, stripped before routing. Leave ''
+     * to auto-detect from the front controller's location (works for most
+     * setups). Set it when the server can't be configured, e.g.
+     *   '/foo/ws/public'            served under a sub-path, or
+     *   '/foo/ws/public/index.php'  when URL rewriting is unavailable
+     *                               (access routes as /foo/ws/public/index.php/users/5).
+     */
+    'base_path' => '',
+
+    /**
      * Logging. `path` is a file path or a PHP stream (e.g. 'php://stderr');
      * `level` is the minimum PSR-3 level that gets written. Bind any PSR-3
      * logger (Monolog, ...) on LoggerInterface to replace the default.

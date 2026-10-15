@@ -19,6 +19,7 @@ final class Request
      * @param array<string, string> $query      Query-string parameters.
      * @param array<string, mixed>  $body        Parsed request body (form or JSON).
      * @param array<string, string> $headers    Normalised (lower-cased) headers.
+     * @param string                $basePath   Mount path stripped from `path` (for building URLs back).
      * @param array<string, mixed>  $attributes Request-scoped state bag.
      */
     public function __construct(
@@ -27,11 +28,12 @@ final class Request
         public readonly array $query = [],
         public readonly array $body = [],
         public readonly array $headers = [],
+        public readonly string $basePath = '',
         private array $attributes = [],
     ) {
     }
 
-    public static function fromGlobals(): self
+    public static function fromGlobals(string $basePath = ''): self
     {
         $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 
@@ -39,13 +41,56 @@ final class Request
         $path = parse_url($uri, PHP_URL_PATH);
         $path = is_string($path) ? rawurldecode($path) : '/';
 
+        $base = self::resolveBase($basePath);
+
         return new self(
             method: $method,
-            path: $path,
+            path: self::stripBase($path, $base),
             query: $_GET,
             body: self::parseBody(),
             headers: self::parseHeaders(),
+            basePath: $base,
         );
+    }
+
+    /**
+     * Prefix an app-absolute path (e.g. "/login") with the base path, so a
+     * redirect/link points back at this mount rather than the server root.
+     */
+    public function url(string $path): string
+    {
+        return $this->basePath . $path;
+    }
+
+    /**
+     * Resolve the application's base path, in order of precedence:
+     *   1. the explicit $basePath (config 'base_path'), e.g. "/foo/ws/public";
+     *   2. the BASE_PATH environment variable;
+     *   3. the front controller's directory from SCRIPT_NAME (auto-detect).
+     *
+     * Set config 'base_path' when the server can't be configured — it also
+     * covers running without URL rewriting by pointing at the script itself,
+     * e.g. "/foo/ws/public/index.php".
+     */
+    private static function resolveBase(string $basePath): string
+    {
+        $base = $basePath !== '' ? $basePath : (string) (getenv('BASE_PATH') ?: '');
+        if ($base === '') {
+            $base = dirname(str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '')));
+        }
+        $base = rtrim(str_replace('\\', '/', $base), '/');
+
+        return $base === '.' ? '' : $base;
+    }
+
+    /** Strip the resolved base so routing sees module-relative paths. */
+    private static function stripBase(string $path, string $base): string
+    {
+        if ($base !== '' && $base !== '/' && str_starts_with($path, $base)) {
+            $path = substr($path, strlen($base));
+        }
+
+        return $path === '' ? '/' : $path;
     }
 
     /** @return array<string, mixed> */

@@ -23,9 +23,21 @@ runtime dependencies: `onelogin/php-saml` (SAML login), `monolog/monolog` +
 php -S 127.0.0.1:8080 -t public
 ```
 
-`public/index.php` is the single entry point (front controller). Behind
-Apache/nginx, route all non-file requests to it — a `public/.htaccess` is
-included; the nginx equivalent is `try_files $uri /index.php$is_args$args;`.
+`public/index.php` is the single entry point (front controller). Behind a real
+web server, route all non-file requests to it:
+
+- **IIS**: `public/web.config` is included (needs the URL Rewrite module).
+- **Apache**: `public/.htaccess` is included.
+- **nginx**: `try_files $uri /index.php$is_args$args;`
+
+The app is **mount-point aware** — it strips its own base path (auto-detected
+from `SCRIPT_NAME`), so it works at `/` or under a sub-path like
+`/foo/ws/public/` with no change. If auto-detect is wrong, set it explicitly via
+config `base_path` (or the `BASE_PATH` env var), e.g. `'/foo/ws/public'`.
+
+**No URL Rewrite available?** You don't need it — set
+`'base_path' => '/foo/ws/public/index.php'` and route requests through the
+script directly: `…/foo/ws/public/index.php/users/5/show`.
 
 Try it:
 

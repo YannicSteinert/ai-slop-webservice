@@ -21,14 +21,14 @@ if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
 
 const OAUTH_DDL = [
     'CREATE TABLE oauth_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
-        client_id TEXT NOT NULL, identity TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+        client_id TEXT NOT NULL, principal TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
     'CREATE TABLE oauth_clients (id INTEGER PRIMARY KEY AUTOINCREMENT, client_id TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL, secret_hash TEXT NOT NULL, redirect_uris TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
     'CREATE TABLE oauth_auth_codes (id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT NOT NULL UNIQUE,
-        client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, identity TEXT NOT NULL, code_challenge TEXT,
+        client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, principal TEXT NOT NULL, code_challenge TEXT,
         code_challenge_method TEXT, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
     'CREATE TABLE oauth_refresh_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
-        client_id TEXT NOT NULL, identity TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+        client_id TEXT NOT NULL, principal TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
 ];
 
 function oauth_connection(): Connection

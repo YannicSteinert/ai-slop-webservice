@@ -95,7 +95,7 @@ final class TokenStore
         $raw = bin2hex(random_bytes(32));
 
         $this->db->execute(
-            'INSERT INTO ' . self::CODES . ' (code_hash, client_id, redirect_uri, identity, code_challenge, code_challenge_method, expires_at)
+            'INSERT INTO ' . self::CODES . ' (code_hash, client_id, redirect_uri, principal, code_challenge, code_challenge_method, expires_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)',
             [
                 $this->hash($raw),
@@ -130,7 +130,7 @@ final class TokenStore
     public function redeemAuthCode(string $code, string $clientId, string $redirectUri, ?string $codeVerifier): ?array
     {
         $row = $this->db->selectOne(
-            'SELECT client_id, redirect_uri, identity, code_challenge, code_challenge_method, expires_at
+            'SELECT client_id, redirect_uri, principal, code_challenge, code_challenge_method, expires_at
              FROM ' . self::CODES . ' WHERE code_hash = ?',
             [$this->hash($code)],
         );
@@ -149,7 +149,7 @@ final class TokenStore
             return null;
         }
 
-        $data = json_decode((string) $row['identity'], true);
+        $data = json_decode((string) $row['principal'], true);
 
         return is_array($data) ? $this->issueTokens($clientId, Identity::fromArray($data), withRefresh: true) : null;
     }
@@ -162,7 +162,7 @@ final class TokenStore
     public function refresh(string $refreshToken, string $clientId): ?array
     {
         $row = $this->db->selectOne(
-            'SELECT client_id, identity, expires_at FROM ' . self::REFRESH . ' WHERE token_hash = ?',
+            'SELECT client_id, principal, expires_at FROM ' . self::REFRESH . ' WHERE token_hash = ?',
             [$this->hash($refreshToken)],
         );
         if ($row === null) {
@@ -176,7 +176,7 @@ final class TokenStore
             return null;
         }
 
-        $data = json_decode((string) $row['identity'], true);
+        $data = json_decode((string) $row['principal'], true);
 
         return is_array($data) ? $this->issueTokens($clientId, Identity::fromArray($data), withRefresh: true) : null;
     }
@@ -187,14 +187,14 @@ final class TokenStore
     public function validate(string $rawToken): ?Identity
     {
         $row = $this->db->selectOne(
-            'SELECT identity FROM ' . self::ACCESS . ' WHERE token_hash = ? AND expires_at > ?',
+            'SELECT principal FROM ' . self::ACCESS . ' WHERE token_hash = ? AND expires_at > ?',
             [$this->hash($rawToken), time()],
         );
         if ($row === null) {
             return null;
         }
 
-        $data = json_decode((string) $row['identity'], true);
+        $data = json_decode((string) $row['principal'], true);
 
         return is_array($data) ? Identity::fromArray($data) : null;
     }
@@ -220,7 +220,7 @@ final class TokenStore
     {
         $access = bin2hex(random_bytes(32));
         $this->db->execute(
-            'INSERT INTO ' . self::ACCESS . ' (token_hash, client_id, identity, expires_at) VALUES (?, ?, ?, ?)',
+            'INSERT INTO ' . self::ACCESS . ' (token_hash, client_id, principal, expires_at) VALUES (?, ?, ?, ?)',
             [$this->hash($access), $clientId, json_encode($identity->toArray()), time() + $this->ttl],
         );
 
@@ -229,7 +229,7 @@ final class TokenStore
         if ($withRefresh) {
             $refresh = bin2hex(random_bytes(32));
             $this->db->execute(
-                'INSERT INTO ' . self::REFRESH . ' (token_hash, client_id, identity, expires_at) VALUES (?, ?, ?, ?)',
+                'INSERT INTO ' . self::REFRESH . ' (token_hash, client_id, principal, expires_at) VALUES (?, ?, ?, ?)',
                 [$this->hash($refresh), $clientId, json_encode($identity->toArray()), time() + $this->refreshTtl],
             );
             $result['refresh_token'] = $refresh;

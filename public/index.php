@@ -15,4 +15,4 @@ $app = new Application($config, $modules);
 // Register policies against custom logic as they are implemented, e.g.:
 // $app->gate()->register('users.view', new ViewUsersPolicy());
 
-$app->handle(Request::fromGlobals())->send();
+$app->handle(Request::fromGlobals((string) ($config['base_path'] ?? '')))->send();
