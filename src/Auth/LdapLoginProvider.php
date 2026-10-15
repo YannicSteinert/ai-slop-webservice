@@ -128,9 +128,27 @@ final class LdapLoginProvider implements LoginProviderInterface
             }
         }
 
-        $dn = sprintf((string) ($this->config['dn_format'] ?? '%s'), $username);
+        // Step 1: anonymous bind, then search by uid to discover the user's
+        // real DN. We cannot construct it from a template because the entries
+        // are indexed by uid but their DN is keyed on another attribute (cn).
+        if (!@ldap_bind($connection)) {
+            $this->logger->warning('LDAP anonymous bind (for DN lookup) failed: {error}', [
+                'error' => ldap_error($connection),
+            ]);
+
+            return null;
+        }
+
+        $dn = $this->resolveUserDn($connection, $username);
+        if ($dn === null) {
+            $this->logger->warning('LDAP: no entry found for uid {user}', ['user' => $username]);
+
+            return null;
+        }
+
+        // Step 2: bind as that DN with the supplied password to verify it.
         if (!@ldap_bind($connection, $dn, $password)) {
-            // The real reason (wrong DN, bad credentials, server down, TLS, …)
+            // The real reason (bad credentials, server down, TLS, …)
             // — generic to the client, specific in the log.
             ldap_get_option($connection, LDAP_OPT_DIAGNOSTIC_MESSAGE, $diagnostic);
             $this->logger->warning('LDAP bind failed for {dn}: {error} {diagnostic}', [
@@ -147,6 +165,36 @@ final class LdapLoginProvider implements LoginProviderInterface
             'roles' => [],
             'attributes' => ['dn' => $dn],
         ], $this->fetchAttributes($connection, $dn, $username));
+    }
+
+    /**
+     * Anonymous-search the directory by uid to find the user's real DN.
+     *
+     * @param \LDAP\Connection $connection
+     */
+    private function resolveUserDn(mixed $connection, string $username): ?string
+    {
+        $baseDn = (string) ($this->config['base_dn'] ?? '');
+        if ($baseDn === '') {
+            $this->logger->error('LDAP: auth.ldap.base_dn is required for DN lookup.');
+
+            return null;
+        }
+
+        $filter = '(uid=' . ldap_escape($username, '', LDAP_ESCAPE_FILTER) . ')';
+        $search = @ldap_search($connection, $baseDn, $filter, ['dn']);
+        if ($search === false) {
+            $this->logger->warning('LDAP search failed: {error}', ['error' => ldap_error($connection)]);
+
+            return null;
+        }
+
+        $entries = ldap_get_entries($connection, $search);
+        if (($entries['count'] ?? 0) < 1 || !isset($entries[0]['dn'])) {
+            return null;
+        }
+
+        return (string) $entries[0]['dn'];
     }
 
     /**
