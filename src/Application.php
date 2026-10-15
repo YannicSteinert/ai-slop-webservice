@@ -67,7 +67,7 @@ final class Application
 
         // Bound so autowired webservices receive them (e.g. the OAuth and Login modules).
         $container->instance(TokenStore::class, $tokenStore);
-        $container->instance(AuthManager::class, new AuthManager((array) ($config['auth'] ?? [])));
+        $container->instance(AuthManager::class, new AuthManager((array) ($config['auth'] ?? []), $logger));
         $container->instance(SessionGuard::class, $sessionGuard);
 
         $this->gate = new Gate();

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace bapersbw\Auth;
 
 use bapersbw\Exceptions\HttpException;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * Builds and selects the outward login providers from config.
@@ -19,10 +21,14 @@ final class AuthManager
     /** @var array<string, LoginProviderInterface> */
     private array $resolved = [];
 
+    private readonly LoggerInterface $logger;
+
     /** @param array<string, mixed> $config */
     public function __construct(
         private readonly array $config,
+        ?LoggerInterface $logger = null,
     ) {
+        $this->logger = $logger ?? new NullLogger();
     }
 
     public function default(): LoginProviderInterface
@@ -47,7 +53,7 @@ final class AuthManager
         $config = (array) ($this->config[$name] ?? []);
 
         return match ($name) {
-            'ldap' => new LdapLoginProvider($config),
+            'ldap' => new LdapLoginProvider($config, $this->logger),
             'saml' => new SamlLoginProvider($config),
             default => throw new HttpException(404, "Unknown login provider [$name]."),
         };

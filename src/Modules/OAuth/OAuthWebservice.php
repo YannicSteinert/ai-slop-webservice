@@ -61,9 +61,10 @@ final class OAuthWebservice extends Webservice
         // Require a logged-in human (established by SAML/LDAP → session).
         $identity = $this->request->attribute('identity');
         if (!$identity instanceof Identity || $identity->type !== Identity::TYPE_USER) {
-            $returnTo = '/oauth/authorize?' . http_build_query($this->request->query);
+            // Build URLs under the app's mount path so the browser stays in this app.
+            $returnTo = $this->request->url('/oauth/authorize') . '?' . http_build_query($this->request->query);
 
-            return $this->redirect('/login?return_to=' . rawurlencode($returnTo));
+            return $this->redirect($this->request->url('/login') . '?return_to=' . rawurlencode($returnTo));
         }
 
         $code = $this->tokens->createAuthCode(
