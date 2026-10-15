@@ -20,6 +20,24 @@ return [
     'base_path' => '',
 
     /**
+     * CORS. Browsers send an OPTIONS preflight before cross-origin POSTs that
+     * carry an Authorization header or a JSON body (e.g. POST /oauth/token).
+     * The kernel answers that preflight and stamps these headers on responses.
+     *
+     * `allowed_origins` is an explicit allow-list of scheme://host[:port]
+     * values, or ['*'] for any. With `allow_credentials => true` the matched
+     * origin is echoed back (the spec forbids '*' together with credentials).
+     * Leave `allowed_headers` null to mirror whatever the preflight requests.
+     */
+    'cors' => [
+        'allowed_origins' => ['http://localhost:5173'],
+        'allowed_methods' => ['GET', 'POST', 'OPTIONS'],
+        'allowed_headers' => null, // null = reflect Access-Control-Request-Headers
+        'allow_credentials' => true,
+        'max_age' => 600,
+    ],
+
+    /**
      * Logging. `path` is a file path or a PHP stream (e.g. 'php://stderr');
      * `level` is the minimum PSR-3 level that gets written. Bind any PSR-3
      * logger (Monolog, ...) on LoggerInterface to replace the default.

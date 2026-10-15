@@ -77,6 +77,13 @@ final class Kernel
 
     private function process(Request $request): Response
     {
+        // CORS preflight: answer OPTIONS here, before routing. Routes only
+        // declare GET/POST, so an OPTIONS would otherwise 405 with no CORS
+        // headers and the browser would block the real request.
+        if ($request->method === 'OPTIONS' && $request->header('access-control-request-method') !== null) {
+            return $this->applyCors($request, new Response('', 204));
+        }
+
         try {
             $identity = $this->tokenGuard->resolve($request) ?? $this->sessionGuard->user();
             if ($identity !== null) {
@@ -86,12 +93,66 @@ final class Kernel
             $match = $this->router->match($request);
             $this->enforcePolicies($match, $request);
 
-            return $this->dispatch($match, $request);
+            $response = $this->dispatch($match, $request);
         } catch (HttpException $e) {
-            return $this->renderHttpException($e, $request);
+            $response = $this->renderHttpException($e, $request);
         } catch (Throwable $e) {
-            return $this->renderThrowable($e, $request);
+            $response = $this->renderThrowable($e, $request);
         }
+
+        return $this->applyCors($request, $response);
+    }
+
+    /**
+     * Stamp CORS headers onto a response when the request carries an allowed
+     * Origin. Preflight (OPTIONS) responses also get the method/header/max-age
+     * headers the browser needs to permit the follow-up request.
+     */
+    private function applyCors(Request $request, Response $response): Response
+    {
+        $origin = $request->header('origin');
+        if ($origin === null) {
+            return $response; // same-origin or non-browser client: nothing to do
+        }
+
+        $cors = (array) ($this->config['cors'] ?? []);
+        $allowed = (array) ($cors['allowed_origins'] ?? []);
+        $credentials = (bool) ($cors['allow_credentials'] ?? false);
+
+        $allowOrigin = match (true) {
+            in_array('*', $allowed, true) => $credentials ? $origin : '*',
+            in_array($origin, $allowed, true) => $origin,
+            default => null,
+        };
+
+        if ($allowOrigin === null) {
+            // Origin not allow-listed: send no CORS headers so the browser blocks it.
+            return $response;
+        }
+
+        $response->withHeader('Access-Control-Allow-Origin', $allowOrigin);
+        $response->withHeader('Vary', 'Origin');
+        if ($credentials) {
+            $response->withHeader('Access-Control-Allow-Credentials', 'true');
+        }
+
+        if ($request->method === 'OPTIONS') {
+            $response->withHeader(
+                'Access-Control-Allow-Methods',
+                implode(', ', (array) ($cors['allowed_methods'] ?? ['GET', 'POST', 'OPTIONS'])),
+            );
+
+            $allowHeaders = ($cors['allowed_headers'] ?? null) !== null
+                ? implode(', ', (array) $cors['allowed_headers'])
+                : (string) $request->header('access-control-request-headers', '');
+            if ($allowHeaders !== '') {
+                $response->withHeader('Access-Control-Allow-Headers', $allowHeaders);
+            }
+
+            $response->withHeader('Access-Control-Max-Age', (string) ($cors['max_age'] ?? 600));
+        }
+
+        return $response;
     }
 
     private function enforcePolicies(RouteMatch $match, Request $request): void
