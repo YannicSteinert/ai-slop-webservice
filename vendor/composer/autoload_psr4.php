@@ -10,4 +10,5 @@ return array(
     'RobRichards\\XMLSecLibs\\' => array($vendorDir . '/robrichards/xmlseclibs/src'),
     'Psr\\Log\\' => array($vendorDir . '/psr/log/src'),
     'OneLogin\\' => array($vendorDir . '/onelogin/php-saml/src'),
+    'Monolog\\' => array($vendorDir . '/monolog/monolog/src/Monolog'),
 );

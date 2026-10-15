@@ -3,7 +3,7 @@
         'name' => 'bapersbw/webservice',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => '00b6da4141788309137233d0af8319c0a8d466fb',
+        'reference' => 'aa20a42f024b4e0c66f6ea322574667d13d0d0b5',
         'type' => 'project',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -13,9 +13,18 @@
         'bapersbw/webservice' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => '00b6da4141788309137233d0af8319c0a8d466fb',
+            'reference' => 'aa20a42f024b4e0c66f6ea322574667d13d0d0b5',
             'type' => 'project',
             'install_path' => __DIR__ . '/../../',
+            'aliases' => array(),
+            'dev_requirement' => false,
+        ),
+        'monolog/monolog' => array(
+            'pretty_version' => '3.12.1',
+            'version' => '3.12.1.0',
+            'reference' => 'd7059e4c691d05ea1222b5124bed0f961be46e15',
+            'type' => 'library',
+            'install_path' => __DIR__ . '/../monolog/monolog',
             'aliases' => array(),
             'dev_requirement' => false,
         ),
@@ -36,6 +45,12 @@
             'install_path' => __DIR__ . '/../psr/log',
             'aliases' => array(),
             'dev_requirement' => false,
+        ),
+        'psr/log-implementation' => array(
+            'dev_requirement' => false,
+            'provided' => array(
+                0 => '3.0.0',
+            ),
         ),
         'robrichards/xmlseclibs' => array(
             'pretty_version' => '3.1.5',

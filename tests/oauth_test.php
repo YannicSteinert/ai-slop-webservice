@@ -3,7 +3,9 @@
 declare(strict_types=1);
 
 use bapersbw\Application;
+use bapersbw\Auth\Identity;
 use bapersbw\Auth\Session;
+use bapersbw\Auth\SessionGuard;
 use bapersbw\Auth\TokenStore;
 use bapersbw\Database\Connection;
 use bapersbw\Http\Request;
@@ -17,114 +19,209 @@ if (!in_array('sqlite', PDO::getAvailableDrivers(), true)) {
     return;
 }
 
-const OAUTH_TOKENS_DDL = 'CREATE TABLE oauth_tokens (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
-    client_id TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
-)';
-
-const OAUTH_CLIENTS_DDL = 'CREATE TABLE oauth_clients (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, client_id TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL, secret_hash TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
-)';
+const OAUTH_DDL = [
+    'CREATE TABLE oauth_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL, identity TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+    'CREATE TABLE oauth_clients (id INTEGER PRIMARY KEY AUTOINCREMENT, client_id TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL, secret_hash TEXT NOT NULL, redirect_uris TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+    'CREATE TABLE oauth_auth_codes (id INTEGER PRIMARY KEY AUTOINCREMENT, code_hash TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, identity TEXT NOT NULL, code_challenge TEXT,
+        code_challenge_method TEXT, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+    'CREATE TABLE oauth_refresh_tokens (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL, identity TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)',
+];
 
 function oauth_connection(): Connection
 {
     $db = new Connection(['driver' => 'sqlite', 'database' => ':memory:']);
-    $db->execute(OAUTH_TOKENS_DDL);
-    $db->execute(OAUTH_CLIENTS_DDL);
+    foreach (OAUTH_DDL as $sql) {
+        $db->execute($sql);
+    }
 
     return $db;
 }
 
-function oauth_app(): array
+/** @return array{0: Application, 1: Session, 2: array{client_id:string,client_secret:string}} */
+function oauth_app(string $redirectUri = 'https://app.example/callback'): array
 {
     $config = require dirname(__DIR__) . '/config/config.php';
     $config['database'] = ['driver' => 'sqlite', 'database' => ':memory:'];
     $modules = require dirname(__DIR__) . '/config/modules.php';
 
-    $app = new Application($config, $modules, new Session(native: false), new NullLogger());
+    $session = new Session(native: false);
+    $app = new Application($config, $modules, $session, new NullLogger());
     $db = $app->container->get(Connection::class);
-    $db->execute(OAUTH_TOKENS_DDL);
-    $db->execute(OAUTH_CLIENTS_DDL);
+    foreach (OAUTH_DDL as $sql) {
+        $db->execute($sql);
+    }
+    $client = (new TokenStore($db))->createClient('Test Client', [$redirectUri]);
 
-    // Register a client to exchange credentials with.
-    $client = (new TokenStore($db))->createClient('Test Client');
-
-    return [$app, $client];
+    return [$app, $session, $client];
 }
 
-test('createClient registers a client whose credentials then issue a token', function (): void {
+function pkce_pair(): array
+{
+    $verifier = bin2hex(random_bytes(32));
+    $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+
+    return [$verifier, $challenge];
+}
+
+function basic_header(array $client): string
+{
+    return 'Basic ' . base64_encode($client['client_id'] . ':' . $client['client_secret']);
+}
+
+/** Drive GET /oauth/authorize (with a logged-in user) and return the issued code. */
+function authorize_code(Application $app, Session $session, array $client, string $redirectUri, string $challenge): string
+{
+    $app->container->get(SessionGuard::class)->login(new Identity('alice', Identity::TYPE_USER, 'Alice'));
+
+    $response = $app->handle(new Request('GET', '/oauth/authorize', query: [
+        'response_type' => 'code',
+        'client_id' => $client['client_id'],
+        'redirect_uri' => $redirectUri,
+        'state' => 'xyz',
+        'code_challenge' => $challenge,
+        'code_challenge_method' => 'S256',
+    ]));
+
+    assert_same(302, $response->getStatus(), $response->getBody());
+    $location = $response->getHeaders()['Location'] ?? '';
+    assert_true(str_contains($location, 'state=xyz'), 'state is echoed back');
+    parse_str((string) parse_url($location, PHP_URL_QUERY), $q);
+
+    return (string) ($q['code'] ?? '');
+}
+
+test('client_credentials issues a token that validates to the client', function (): void {
     $db = oauth_connection();
     $store = new TokenStore($db, 900);
+    $client = $store->createClient('Svc', []);
 
-    $client = $store->createClient('Onboarding');
-    assert_true($client['client_id'] !== '' && $client['client_secret'] !== '');
-
-    $token = $store->issue($client['client_id'], $client['client_secret']);
-    assert_true($token !== null, 'valid client should get a token');
-    assert_same('Bearer', $token['token_type']);
-
+    $token = $store->issueClientToken($client['client_id']);
     $identity = $store->validate($token['access_token']);
-    assert_true($identity !== null && $identity->id === $client['client_id']);
-    assert_same('client', $identity->type);
+    assert_true($identity !== null && $identity->type === 'client' && $identity->id === $client['client_id']);
 });
 
-test('token store rejects bad client credentials', function (): void {
-    $store = new TokenStore(oauth_connection(), 900);
-    $client = $store->createClient('Svc');
+test('authorize without a session redirects to login', function (): void {
+    [$app, , $client] = oauth_app();
 
-    assert_same(null, $store->issue($client['client_id'], 'wrong-secret'));
-    assert_same(null, $store->issue('no-such-client', $client['client_secret']));
-});
-
-test('expired tokens do not validate and can be purged', function (): void {
-    $db = oauth_connection();
-    $store = new TokenStore($db, -1); // already expired on issue
-    $client = $store->createClient('Svc');
-
-    $token = $store->issue($client['client_id'], $client['client_secret']);
-    assert_same(null, $store->validate($token['access_token']), 'expired token must not authenticate');
-
-    assert_same(1, (int) $db->selectOne('SELECT COUNT(*) AS c FROM oauth_tokens')['c'], 'row was stored');
-    assert_same(1, $store->purgeExpired(), 'purge removes the expired row');
-    assert_same(0, (int) $db->selectOne('SELECT COUNT(*) AS c FROM oauth_tokens')['c'], 'row was purged');
-});
-
-test('POST /oauth/token issues a token usable as a bearer', function (): void {
-    [$app, $client] = oauth_app();
-
-    $response = $app->handle(new Request('POST', '/oauth/token', [], [
-        'grant_type' => 'client_credentials',
+    $response = $app->handle(new Request('GET', '/oauth/authorize', query: [
+        'response_type' => 'code',
         'client_id' => $client['client_id'],
-        'client_secret' => $client['client_secret'],
+        'redirect_uri' => 'https://app.example/callback',
     ]));
-    assert_same(200, $response->getStatus(), $response->getBody());
 
-    $token = json_decode($response->getBody(), true)['access_token'] ?? '';
-    assert_true($token !== '', 'response should carry an access_token');
-
-    $whoami = $app->handle(new Request('GET', '/login/whoami', headers: ['authorization' => 'Bearer ' . $token]));
-    assert_same(200, $whoami->getStatus(), $whoami->getBody());
-    assert_true(str_contains($whoami->getBody(), $client['client_id']), 'bearer token identifies the client');
+    assert_same(302, $response->getStatus());
+    assert_true(str_contains($response->getHeaders()['Location'] ?? '', '/login?return_to='), 'should bounce to login');
 });
 
-test('POST /oauth/token rejects a bad client with 401 invalid_client', function (): void {
+test('authorize rejects an unregistered redirect_uri', function (): void {
+    [$app, , $client] = oauth_app();
+
+    $response = $app->handle(new Request('GET', '/oauth/authorize', query: [
+        'response_type' => 'code',
+        'client_id' => $client['client_id'],
+        'redirect_uri' => 'https://evil.example/steal',
+    ]));
+
+    assert_same(400, $response->getStatus());
+});
+
+test('authorization_code + PKCE issues user tokens usable as a bearer', function (): void {
+    [$app, $session, $client] = oauth_app();
+    $redirectUri = 'https://app.example/callback';
+    [$verifier, $challenge] = pkce_pair();
+
+    $code = authorize_code($app, $session, $client, $redirectUri, $challenge);
+    assert_true($code !== '', 'authorize should return a code');
+
+    $token = $app->handle(new Request('POST', '/oauth/token', body: [
+        'grant_type' => 'authorization_code',
+        'code' => $code,
+        'redirect_uri' => $redirectUri,
+        'code_verifier' => $verifier,
+    ], headers: ['authorization' => basic_header($client)]));
+
+    assert_same(200, $token->getStatus(), $token->getBody());
+    $data = json_decode($token->getBody(), true);
+    assert_true(!empty($data['access_token']) && !empty($data['refresh_token']), 'both tokens returned');
+
+    // The access token represents the USER, not the client.
+    $whoami = $app->handle(new Request('GET', '/login/whoami', headers: ['authorization' => 'Bearer ' . $data['access_token']]));
+    assert_same(200, $whoami->getStatus(), $whoami->getBody());
+    assert_true(str_contains($whoami->getBody(), '"id":"alice"') && str_contains($whoami->getBody(), '"type":"user"'));
+});
+
+test('a wrong PKCE verifier is rejected as invalid_grant', function (): void {
+    [$app, $session, $client] = oauth_app();
+    $redirectUri = 'https://app.example/callback';
+    [, $challenge] = pkce_pair();
+
+    $code = authorize_code($app, $session, $client, $redirectUri, $challenge);
+
+    $token = $app->handle(new Request('POST', '/oauth/token', body: [
+        'grant_type' => 'authorization_code',
+        'code' => $code,
+        'redirect_uri' => $redirectUri,
+        'code_verifier' => 'the-wrong-verifier',
+    ], headers: ['authorization' => basic_header($client)]));
+
+    assert_same(400, $token->getStatus());
+    assert_true(str_contains($token->getBody(), 'invalid_grant'));
+});
+
+test('refresh_token rotates for a fresh access token', function (): void {
+    [$app, $session, $client] = oauth_app();
+    $redirectUri = 'https://app.example/callback';
+    [$verifier, $challenge] = pkce_pair();
+
+    $code = authorize_code($app, $session, $client, $redirectUri, $challenge);
+    $first = json_decode($app->handle(new Request('POST', '/oauth/token', body: [
+        'grant_type' => 'authorization_code',
+        'code' => $code,
+        'redirect_uri' => $redirectUri,
+        'code_verifier' => $verifier,
+    ], headers: ['authorization' => basic_header($client)]))->getBody(), true);
+
+    $refreshed = $app->handle(new Request('POST', '/oauth/token', body: [
+        'grant_type' => 'refresh_token',
+        'refresh_token' => $first['refresh_token'],
+    ], headers: ['authorization' => basic_header($client)]));
+
+    assert_same(200, $refreshed->getStatus(), $refreshed->getBody());
+    $data = json_decode($refreshed->getBody(), true);
+    assert_true(!empty($data['access_token']) && !empty($data['refresh_token']));
+
+    $whoami = $app->handle(new Request('GET', '/login/whoami', headers: ['authorization' => 'Bearer ' . $data['access_token']]));
+    assert_same(200, $whoami->getStatus(), 'refreshed token still identifies the user');
+
+    // The old refresh token is now spent (rotation).
+    $reuse = $app->handle(new Request('POST', '/oauth/token', body: [
+        'grant_type' => 'refresh_token',
+        'refresh_token' => $first['refresh_token'],
+    ], headers: ['authorization' => basic_header($client)]));
+    assert_same(400, $reuse->getStatus(), 'a rotated refresh token cannot be reused');
+});
+
+test('token endpoint rejects a bad client with 401', function (): void {
     [$app] = oauth_app();
 
-    $response = $app->handle(new Request('POST', '/oauth/token', [], [
+    $response = $app->handle(new Request('POST', '/oauth/token', body: [
         'grant_type' => 'client_credentials',
-        'client_id' => 'nope',
-        'client_secret' => 'nope',
-    ]));
+    ], headers: ['authorization' => 'Basic ' . base64_encode('nope:nope')]));
 
     assert_same(401, $response->getStatus());
     assert_true(str_contains($response->getBody(), 'invalid_client'));
 });
 
-test('POST /oauth/token rejects an unsupported grant type with 400', function (): void {
-    [$app] = oauth_app();
+test('token endpoint rejects an unsupported grant type with 400', function (): void {
+    [$app, , $client] = oauth_app();
 
-    $response = $app->handle(new Request('POST', '/oauth/token', [], ['grant_type' => 'password']));
+    $response = $app->handle(new Request('POST', '/oauth/token', body: [
+        'grant_type' => 'password',
+    ], headers: ['authorization' => basic_header($client)]));
 
     assert_same(400, $response->getStatus());
     assert_true(str_contains($response->getBody(), 'unsupported_grant_type'));

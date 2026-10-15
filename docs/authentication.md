@@ -131,77 +131,104 @@ the SAMLResponse. The onelogin settings pass straight through from config:
 Until the IdP settings are filled in, hitting the SAML flow returns a clear
 "SAML is not correctly configured" error.
 
-## Inward OAuth2 (client-credentials, DB-backed)
+## Inward OAuth2 (DB-backed)
 
-Service-to-service auth uses the OAuth2 **client-credentials** grant with real,
-database-stored, **short-lived** tokens — not a static list. There are no scopes
-or roles; a valid token simply identifies the calling service.
+The service is an OAuth2 **authorization server + resource server**, with real,
+database-stored, **short-lived** access tokens. Three grants are supported:
+
+| Grant | For | Token represents |
+|---|---|---|
+| `authorization_code` (+ PKCE, refresh) | an app acting for a logged-in **user** | the user |
+| `client_credentials` | a service acting as **itself** | the client |
+| `refresh_token` | renewing without re-authorizing | (same as the code's user) |
+
+There are no scopes/roles — a valid token simply identifies the principal.
 
 Pieces:
 
-- [`Modules\OAuth\OAuthWebservice`](../src/Modules/OAuth/OAuthWebservice.php) —
-  the token endpoint, `POST /oauth/token`.
-- [`Auth\TokenStore`](../src/Auth/TokenStore.php) — issues/validates/purges
-  tokens against the `oauth_tokens` table (only a SHA-256 **hash** of each token
-  is stored; `expires_at` is a unix timestamp).
-- [`Auth\TokenGuard`](../src/Auth/TokenGuard.php) — the resource server: resolves
-  a bearer token to a client identity by validating it against the store.
-- [`Modules\OAuth\Migrations\M0001_CreateOAuthTokensTable`](../src/Modules/OAuth/Migrations/M0001_CreateOAuthTokensTable.php)
-  — the schema + a self-purging trigger.
+- [`OAuthWebservice`](../src/Modules/OAuth/OAuthWebservice.php) — `GET /oauth/authorize`
+  and `POST /oauth/token`.
+- [`TokenStore`](../src/Auth/TokenStore.php) — the server core: clients, codes,
+  access + refresh tokens. Everything is stored only as a SHA-256 **hash**;
+  `expires_at` is a unix timestamp; `identity` is the principal's JSON.
+- [`TokenGuard`](../src/Auth/TokenGuard.php) — the resource server: resolves a
+  bearer access token to its identity.
+- Migrations under [`Modules/OAuth/Migrations/`](../src/Modules/OAuth/Migrations/)
+  own the `oauth_clients`, `oauth_tokens`, `oauth_auth_codes` and
+  `oauth_refresh_tokens` tables (the access-token table has a self-purging trigger).
 
-### Configuration
-
-Only the token lifetime lives in config — keep it short:
+### Configuration & client registration
 
 ```php
 'oauth2' => [
-    'ttl' => 900, // token lifetime in seconds
+    'ttl' => 900,             // access token lifetime (seconds)
+    'code_ttl' => 300,        // authorization code lifetime
+    'refresh_ttl' => 1209600, // refresh token lifetime (14 days)
 ],
 ```
 
-Run migrations once so the `oauth_tokens` and `oauth_clients` tables exist:
-`php bin/console migrate`.
-
-### Registering a client
-
-Clients live in the `oauth_clients` table, created from the console (admin
-action — the secret is shown once and stored only as a hash):
+Run `php bin/console migrate`, then register a client with its allowed redirect
+URIs (secret shown once, stored hashed):
 
 ```bash
-php bin/console oauth:client:create "Onboarding App"
-# Client created. Store the secret now — it is not shown again.
-#   client_id:     7f3c…           (32 hex chars)
-#   client_secret: a19e…           (64 hex chars)
+php bin/console oauth:client:create "Onboarding App" https://app.example/callback
+#   client_id:     7f3c…   client_secret: a19e…
 ```
 
-### Getting and using a token
+### Authorization-code flow (user-delegated)
+
+```
+1. GET /oauth/authorize?response_type=code&client_id=…&redirect_uri=…
+        &state=…&code_challenge=…&code_challenge_method=S256
+   → if no session: 302 to /login?return_to=… (user logs in via SAML/LDAP,
+     then is redirected back here)
+   → 302 to <redirect_uri>?code=…&state=…
+
+2. POST /oauth/token            (client auth: Authorization: Basic id:secret)
+     grant_type=authorization_code&code=…&redirect_uri=…&code_verifier=…
+   → { "access_token", "token_type":"Bearer", "expires_in", "refresh_token" }
+```
+
+- `redirect_uri` must **exactly match** one registered for the client.
+- **PKCE**: send `code_challenge` (S256) at authorize and the matching
+  `code_verifier` at token; codes are single-use and short-lived.
+- The resulting access token identifies the **user** (`type: user`).
 
 ```bash
-# 1. exchange client credentials for a short-lived token
-curl -X POST http://localhost:8080/oauth/token \
-     -d 'grant_type=client_credentials&client_id=<id>&client_secret=<secret>'
-# → {"access_token":"<hex>","token_type":"Bearer","expires_in":900}
-
-# 2. call protected endpoints with it
-curl -H 'Authorization: Bearer <hex>' http://localhost:8080/users
+# renew without bouncing the user through /authorize
+curl -u <id>:<secret> -X POST http://localhost:8080/oauth/token \
+     -d 'grant_type=refresh_token&refresh_token=<refresh>'
 ```
 
-Error responses follow OAuth conventions: `{"error":"invalid_client"}` (401) for
-bad credentials, `{"error":"unsupported_grant_type"}` (400) otherwise.
+Refresh tokens are **rotated**: each use returns a new one and invalidates the
+old.
 
-### Short-lived tokens & cleanup
+### Client-credentials flow (service-to-service)
 
-- **Expiry is enforced in `TokenGuard`/`TokenStore`** — a token past `expires_at`
-  never authenticates, independent of any cleanup. Keep `ttl` small.
-- **Cleanup** of expired rows is handled two ways: on MSSQL the migration adds an
-  `AFTER INSERT` **trigger** that deletes expired tokens whenever a new one is
-  issued; anywhere else (or on a schedule) run `php bin/console oauth:purge`.
+```bash
+curl -u <id>:<secret> -X POST http://localhost:8080/oauth/token \
+     -d 'grant_type=client_credentials'
+# → { "access_token", "token_type":"Bearer", "expires_in":900 }   (no refresh)
+curl -H 'Authorization: Bearer <token>' http://localhost:8080/users
+```
+
+The token identifies the **client** (`type: client`).
+
+### Errors, expiry & cleanup
+
+- OAuth-style errors: `invalid_client` (401), `invalid_grant` (400),
+  `unsupported_grant_type` (400); `/authorize` redirects recoverable errors back
+  to a valid `redirect_uri` with `?error=…&state=…`.
+- Expiry is enforced on every validation — a token past `expires_at` never
+  authenticates. Cleanup: the access-token table self-purges via an MSSQL
+  trigger; run `php bin/console oauth:purge` (cron) to clear expired codes and
+  refresh tokens too.
 
 ### Swapping in another OAuth provider
 
-`TokenGuard` only calls `$this->tokens->validate($raw)`. To use external token
-introspection or JWT verification instead, replace `TokenStore` (or `TokenGuard`)
-with one that returns an `?Identity` — nothing else changes.
+`TokenGuard` only calls `$this->tokens->validate($raw)`. To validate tokens with
+external introspection or JWT instead, replace `TokenStore`/`TokenGuard` with one
+that returns an `?Identity` — nothing else changes.
 
 ## Sessions
 

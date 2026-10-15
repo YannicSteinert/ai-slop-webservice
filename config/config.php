@@ -115,9 +115,14 @@ return [
      * token lifetime in seconds — keep it short.
      *
      * Clients live in the oauth_clients table. Create one with:
-     *   php bin/console oauth:client:create "My Service"
+     *   php bin/console oauth:client:create "My Service" https://app/callback
+     *
+     * Supports grant_type = client_credentials | authorization_code (with PKCE)
+     * | refresh_token.
      */
     'oauth2' => [
-        'ttl' => 900, // 15 minutes
+        'ttl' => 900,            // access token lifetime (seconds)
+        'code_ttl' => 300,       // authorization code lifetime (seconds)
+        'refresh_ttl' => 1209600, // refresh token lifetime (seconds, 14 days)
     ],
 ];

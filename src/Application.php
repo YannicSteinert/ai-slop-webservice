@@ -13,7 +13,7 @@ use bapersbw\Container\Container;
 use bapersbw\Database\Connection;
 use bapersbw\Http\Request;
 use bapersbw\Http\Response;
-use bapersbw\Logging\LineLogger;
+use bapersbw\Logging\LoggerFactory;
 use bapersbw\Policy\AuthenticatedPolicy;
 use bapersbw\Policy\Gate;
 use bapersbw\Routing\Router;
@@ -45,10 +45,7 @@ final class Application
         $this->container = $container;
         $container->instance(Container::class, $container);
 
-        $logger ??= new LineLogger(
-            (string) ($config['logging']['path'] ?? 'php://stderr'),
-            (string) ($config['logging']['level'] ?? 'debug'),
-        );
+        $logger ??= LoggerFactory::create((array) ($config['logging'] ?? []));
         $container->instance(LoggerInterface::class, $logger);
 
         // Lazy: the database only connects when a repository first uses it.
@@ -60,7 +57,12 @@ final class Application
         // Inward OAuth2: DB-backed, short-lived tokens. The Connection is lazy,
         // so the token store only hits the database when a bearer token is used.
         $oauth = (array) ($config['oauth2'] ?? []);
-        $tokenStore = new TokenStore($container->get(Connection::class), (int) ($oauth['ttl'] ?? 900));
+        $tokenStore = new TokenStore(
+            $container->get(Connection::class),
+            (int) ($oauth['ttl'] ?? 900),
+            (int) ($oauth['code_ttl'] ?? 300),
+            (int) ($oauth['refresh_ttl'] ?? 1209600),
+        );
         $tokenGuard = new TokenGuard($tokenStore);
 
         // Bound so autowired webservices receive them (e.g. the OAuth and Login modules).

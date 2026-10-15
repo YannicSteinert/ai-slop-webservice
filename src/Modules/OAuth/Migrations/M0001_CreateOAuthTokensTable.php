@@ -8,10 +8,12 @@ use bapersbw\Database\Connection;
 use bapersbw\Database\Migration;
 
 /**
- * Creates the oauth_tokens table (MSSQL) plus a self-purging trigger.
+ * Creates the oauth_tokens (access token) table (MSSQL) plus a self-purging
+ * trigger.
  *
- * Only a SHA-256 hash of each token is stored; `expires_at` is a unix timestamp
- * so expiry comparisons are driver-agnostic.
+ * Only a SHA-256 hash of each token is stored; `identity` holds the JSON of the
+ * principal (a user for authorization-code tokens, the client for
+ * client-credentials tokens); `expires_at` is a unix timestamp.
  *
  * The AFTER INSERT trigger deletes expired rows whenever a new token is issued,
  * keeping the table pruned without a scheduler. (The TokenGuard also rejects
@@ -27,6 +29,7 @@ final class M0001_CreateOAuthTokensTable implements Migration
                 id INT IDENTITY(1,1) PRIMARY KEY,
                 token_hash CHAR(64) NOT NULL UNIQUE,
                 client_id NVARCHAR(100) NOT NULL,
+                identity NVARCHAR(MAX) NOT NULL,
                 expires_at BIGINT NOT NULL,
                 created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
             )

@@ -9,7 +9,7 @@ declare(strict_types=1);
  *   php bin/console migrate            apply all pending module migrations
  *   php bin/console migrate:rollback   roll back the most recent batch
  *   php bin/console migrate:status     show each migration and whether it ran
- *   php bin/console oauth:client:create "<name>"   register an OAuth client
+ *   php bin/console oauth:client:create "<name>" [redirect_uri ...]   register a client
  *   php bin/console oauth:purge        delete expired OAuth tokens
  *
  * Migrations are discovered per module (Modules/<Name>/Migrations/) from the
@@ -19,7 +19,7 @@ declare(strict_types=1);
 use bapersbw\Auth\TokenStore;
 use bapersbw\Database\Connection;
 use bapersbw\Database\Migrator;
-use bapersbw\Logging\LineLogger;
+use bapersbw\Logging\LoggerFactory;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -29,7 +29,7 @@ $modules = require dirname(__DIR__) . '/config/modules.php';
 $command = $argv[1] ?? 'migrate:status';
 
 $connection = new Connection((array) ($config['database'] ?? []));
-$migrator = new Migrator($connection, new LineLogger('php://stdout', 'info'));
+$migrator = new Migrator($connection, LoggerFactory::create(['path' => 'php://stdout', 'level' => 'info'], 'console'));
 $discovered = Migrator::discover($modules);
 
 switch ($command) {
@@ -52,13 +52,17 @@ switch ($command) {
     case 'oauth:client:create':
         $name = trim((string) ($argv[2] ?? ''));
         if ($name === '') {
-            fwrite(STDERR, "Usage: php bin/console oauth:client:create \"<name>\"\n");
+            fwrite(STDERR, "Usage: php bin/console oauth:client:create \"<name>\" [redirect_uri ...]\n");
             exit(1);
         }
-        $client = (new TokenStore($connection))->createClient($name);
+        $redirectUris = array_slice($argv, 3); // any args after the name
+        $client = (new TokenStore($connection))->createClient($name, $redirectUris);
         echo "Client created. Store the secret now — it is not shown again.\n";
         echo "  client_id:     {$client['client_id']}\n";
         echo "  client_secret: {$client['client_secret']}\n";
+        if ($redirectUris !== []) {
+            echo "  redirect_uris: " . implode(', ', $redirectUris) . "\n";
+        }
         break;
 
     case 'oauth:purge':

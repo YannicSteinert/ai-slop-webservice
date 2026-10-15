@@ -14,7 +14,8 @@ composer install
 ```
 
 This generates the autoloader (PSR-4: `bapersbw\` → `src/`) and installs the two
-runtime dependencies: `onelogin/php-saml` (SAML login) and `psr/log` (logging).
+runtime dependencies: `onelogin/php-saml` (SAML login), `monolog/monolog` +
+`psr/log` (logging).
 
 ## Run
 
@@ -77,7 +78,7 @@ src/
     Database/         Connection, Repository, Migration, Migrator
     Auth/             Identity, Session, guards, AuthManager, LDAP/SAML providers
     Policy/           PolicyInterface, Gate, AuthenticatedPolicy
-    Logging/          LineLogger (PSR-3)
+    Logging/          LoggerFactory (PSR-3 / Monolog)
     Modules/          the modules themselves (Users, Login, …)
     Testing/          TestClient, TestResponse
 tests/             the test suite + runner

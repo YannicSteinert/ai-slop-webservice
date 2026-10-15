@@ -53,7 +53,7 @@ new Application(
 It:
 
 1. creates the `Container` and registers itself into it;
-2. builds the `LoggerInterface` (a [`LineLogger`](../src/Logging/LineLogger.php) by default);
+2. builds the `LoggerInterface` (a Monolog logger via [`LoggerFactory`](../src/Logging/LoggerFactory.php));
 3. builds the `Session`, `SessionGuard`, `TokenGuard`;
 4. binds `AuthManager`, `SessionGuard` and a lazy `Connection` into the container
    (so autowired webservices and repositories can receive them);

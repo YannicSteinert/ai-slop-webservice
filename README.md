@@ -98,14 +98,17 @@ GET  /login/whoami               current identity (401 if none)
   the IdP; `/login/saml/callback` is the ACS endpoint. Fill in the `saml.settings`
   (SP/IdP entity ids, ACS URL, IdP cert) to enable it.
 
-### Inward OAuth2 (client-credentials, DB-backed)
+### Inward OAuth2 (DB-backed)
 
-Services exchange a `client_id`/`client_secret` at `POST /oauth/token` for a
-short-lived bearer token (stored hashed in the `oauth_tokens` table), then send
-`Authorization: Bearer <token>`. `TokenGuard` validates it against the DB and
-rejects expired tokens; expired rows are purged by a trigger (MSSQL) or
-`php bin/console oauth:purge`. No scopes/roles — a token identifies the client.
-See [docs/authentication.md](docs/authentication.md#inward-oauth2-client-credentials-db-backed).
+The service is an OAuth2 authorization + resource server. `GET /oauth/authorize`
+runs the **authorization-code** flow (logs the user in via SAML/LDAP, then
+redirects back with a `code`); `POST /oauth/token` exchanges it — with **PKCE**
+and client auth via `Authorization: Basic` — for a short-lived access token plus
+a rotating **refresh token**. It also supports `client_credentials` (service as
+itself) and `refresh_token`. Tokens/codes are stored hashed; `TokenGuard`
+validates bearer tokens and rejects expired ones (trigger + `oauth:purge` clean
+up). Register clients with `php bin/console oauth:client:create "<name>" <redirect_uri>`.
+See [docs/authentication.md](docs/authentication.md#inward-oauth2-db-backed).
 
 ## Policies (authorization)
 
@@ -127,9 +130,11 @@ The Kernel enforces them via the `Gate` (403 on denial). Routes without
 
 ## Logging
 
-Logging is PSR-3 (`Psr\Log\LoggerInterface`). The default `LineLogger` writes
-one line per record to a file or stream; bind any PSR-3 logger (Monolog, …) on
-`LoggerInterface` to replace it. Config (`config/config.php` → `logging`):
+Logging is PSR-3 (`Psr\Log\LoggerInterface`), backed by **Monolog** (built in
+[`LoggerFactory`](src/Logging/LoggerFactory.php)). It writes one line per record
+to the configured file/stream and interpolates `{placeholder}` messages; enrich
+the Monolog stack there or bind a different PSR-3 logger. Config
+(`config/config.php` → `logging`):
 
 ```php
 'logging' => [
@@ -264,7 +269,7 @@ location / { try_files $uri /index.php$is_args$args; }
 | `src/Container/` | autowiring DI container |
 | `src/Database/` | `Connection`, `Repository`, `Migration`, `Migrator` |
 | `src/Auth/` | `Identity`, `Session`, guards, `AuthManager`, LDAP/SAML providers |
-| `src/Logging/` | `LineLogger` (PSR-3) |
+| `src/Logging/` | `LoggerFactory` (PSR-3 / Monolog) |
 | `src/Policy/` | `PolicyInterface`, `Gate`, `AuthenticatedPolicy` |
 | `src/Modules/` | the modules — each with its webservice, repositories, `Migrations/` |
 | `src/Testing/` | `TestClient`, `TestResponse` |

@@ -93,7 +93,37 @@ final class LoginWebservice extends Webservice
             'type' => $identity->type,
         ]);
 
-        // The session cookie keeps the user logged in for the session lifetime.
-        return $this->ok(['authenticated' => true, 'identity' => $identity]);
+        // Browser flows (e.g. OAuth /authorize) send the user here with a
+        // return_to and expect to be redirected back once logged in. Direct API
+        // logins get the identity as JSON. The session cookie keeps them logged
+        // in for the session lifetime.
+        $returnTo = $this->safeReturnTo();
+
+        return $returnTo !== null
+            ? $this->redirect($returnTo)
+            : $this->ok(['authenticated' => true, 'identity' => $identity]);
+    }
+
+    /**
+     * A same-origin relative path to return to after login, or null. Only
+     * relative paths are allowed, to prevent open-redirects.
+     */
+    private function safeReturnTo(): ?string
+    {
+        $candidate = $this->request->input('return_to')
+            ?? $this->request->input('RelayState')
+            ?? $this->request->query('return_to')
+            ?? $this->request->query('RelayState');
+
+        if (!is_string($candidate) || $candidate === '') {
+            return null;
+        }
+
+        // Must be a single-slash absolute path on this host.
+        if (!str_starts_with($candidate, '/') || str_starts_with($candidate, '//') || str_starts_with($candidate, '/\\')) {
+            return null;
+        }
+
+        return $candidate;
     }
 }

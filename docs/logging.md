@@ -1,8 +1,12 @@
 # Logging
 
-Logging is **PSR-3** (`Psr\Log\LoggerInterface`). The default implementation,
-[`LineLogger`](../src/Logging/LineLogger.php), writes one formatted line per
-record to a file or stream. Any PSR-3 logger (Monolog, etc.) can replace it.
+Logging is **PSR-3** (`Psr\Log\LoggerInterface`), backed by **Monolog**. The
+logger is built by [`LoggerFactory`](../src/Logging/LoggerFactory.php): a
+`Monolog\Logger` writing one line per record to the configured file/stream, with
+a `PsrLogMessageProcessor` so `{placeholder}` messages are interpolated. Because
+everything depends only on `LoggerInterface`, you can enrich the Monolog stack
+(rotating files, syslog, JSON, Sentry…) in the factory, or bind a different
+PSR-3 logger entirely, without touching anything else.
 
 ## Configuration
 
@@ -15,17 +19,18 @@ record to a file or stream. Any PSR-3 logger (Monolog, etc.) can replace it.
 ],
 ```
 
-`path` may be a file (its directory is created if missing) or a PHP stream.
-`level` filters out anything below it.
+`path` is a file (Monolog's `StreamHandler` creates the directory) or a PHP
+stream; `level` filters out anything below it.
 
 ## Request correlation
 
 The Kernel assigns every request a short `request_id` and includes it in each
 log record for that request, so you can trace one request across all its lines.
+Monolog's line format is `[time] channel.LEVEL: message {context}`:
 
 ```
-[2026-10-14T06:47:11+00:00] INFO: Login succeeded via ldap {"request_id":"4e48…","provider":"ldap","subject":"devuser","type":"user"}
-[2026-10-14T06:47:11+00:00] WARNING: Request failed with 401: Invalid credentials. {"request_id":"c93c…","status":401,…}
+[2026-10-15T12:56:54+00:00] app.INFO: Login succeeded via ldap {"request_id":"4e48…","provider":"ldap","subject":"devuser"}
+[2026-10-15T12:56:54+00:00] app.WARNING: Request failed with 401: Invalid credentials. {"request_id":"c93c…","path":"/login/ldap/callback"}
 ```
 
 Messages use PSR-3 `{placeholder}` interpolation from the context array.

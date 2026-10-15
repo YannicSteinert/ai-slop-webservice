@@ -9,9 +9,11 @@ use bapersbw\Database\Migration;
 
 /**
  * Registered OAuth clients (MSSQL). The client secret is stored only as a
- * password_hash; the plaintext is shown once, at creation time.
+ * password_hash; the plaintext is shown once, at creation time. `redirect_uris`
+ * is a JSON array of the URIs allowed for the authorization-code flow.
  *
- * Create clients with: php bin/console oauth:client:create "<name>"
+ * Create clients with:
+ *   php bin/console oauth:client:create "<name>" [redirect_uri ...]
  */
 final class M0002_CreateOAuthClientsTable implements Migration
 {
@@ -23,6 +25,7 @@ final class M0002_CreateOAuthClientsTable implements Migration
                 client_id NVARCHAR(100) NOT NULL UNIQUE,
                 name NVARCHAR(200) NOT NULL,
                 secret_hash NVARCHAR(255) NOT NULL,
+                redirect_uris NVARCHAR(MAX) NULL,
                 created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
             )
             SQL);
