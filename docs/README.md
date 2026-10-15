@@ -19,6 +19,7 @@ it walks through building a new module end to end.
 8. [Migrations](migrations.md) — module-owned schema changes + the console
 9. [Logging](logging.md) — PSR-3 logging and where it happens
 10. [Testing](testing.md) — the `TestClient` and the test runner
+11. [Deployment](deployment.md) — production checklist (config, migrations, dev defaults to flip)
 
 ## The 60-second mental model
 
