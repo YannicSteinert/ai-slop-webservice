@@ -81,6 +81,8 @@ final class LdapLoginProvider implements LoginProviderInterface
     {
         $user = $this->config['users'][$username] ?? null;
         if ($user === null) {
+            $this->logger->warning('LDAP (fake mode) auth failed: user {user} is not in the configured users list', ['user' => $username]);
+
             return null;
         }
 
@@ -90,6 +92,8 @@ final class LdapLoginProvider implements LoginProviderInterface
             : hash_equals($stored, $password);
 
         if (!$valid) {
+            $this->logger->warning('LDAP (fake mode) auth failed: password mismatch for {user}', ['user' => $username]);
+
             return null;
         }
 
