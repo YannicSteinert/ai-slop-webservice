@@ -83,8 +83,10 @@ curl -X POST https://<you>/oauth/token \
 curl -H 'Authorization: Bearer <token>' https://<you>/login/whoami              # 200 client identity
 ```
 
-Check `storage/logs/app.log` — each request logs an `info` line with a
-`request_id`; unhandled errors log at `error` with a stack trace.
+Check `storage/logs/` — each request logs an `info` line (with a `request_id`)
+to `application-YYYY-MM-DD.log`, logins/auth failures go to
+`security-YYYY-MM-DD.log`, and any `error` (with stack trace) also lands in
+`error-YYYY-MM-DD.log`. Files rotate daily and keep `logging.max_files` days.
 
 ## Notes
 

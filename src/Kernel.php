@@ -11,6 +11,7 @@ use bapersbw\Container\Container;
 use bapersbw\Exceptions\HttpException;
 use bapersbw\Http\Request;
 use bapersbw\Http\Response;
+use bapersbw\Logging\SecurityLogger;
 use bapersbw\Policy\Gate;
 use bapersbw\Routing\RouteMatch;
 use bapersbw\Routing\Router;
@@ -45,7 +46,13 @@ final class Kernel
         private readonly TokenGuard $tokenGuard,
         private readonly Gate $gate,
         private readonly array $config = [],
+        private readonly ?SecurityLogger $securityLogger = null,
     ) {
+    }
+
+    private function security(): \Psr\Log\LoggerInterface
+    {
+        return $this->securityLogger ?? $this->logger;
     }
 
     public function handle(Request $request): Response
@@ -159,7 +166,7 @@ final class Kernel
     {
         foreach ($match->policies as $authorize) {
             if (!$this->gate->allows($authorize->policy, $request, $authorize->arguments)) {
-                $this->logger->warning('Authorization denied by policy {policy}', [
+                $this->security()->warning('Authorization denied by policy {policy}', [
                     'request_id' => $request->attribute('request_id'),
                     'policy' => $authorize->policy,
                     'path' => $request->path,
@@ -243,7 +250,10 @@ final class Kernel
             in_array($status, [401, 403], true) => 'warning',
             default => 'info',
         };
-        $this->logger->log($level, 'Request failed with {status}: {message}', [
+        // Authentication/authorization failures belong in the security log; other
+        // 4xx/5xx stay in the application log (5xx also reaches the error log).
+        $logger = in_array($status, [401, 403], true) ? $this->security() : $this->logger;
+        $logger->log($level, 'Request failed with {status}: {message}', [
             'request_id' => $request->attribute('request_id'),
             'path' => $request->path,
             'status' => $status,

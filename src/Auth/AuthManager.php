@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace bapersbw\Auth;
 
 use bapersbw\Exceptions\HttpException;
+use bapersbw\Logging\SecurityLogger;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -26,7 +27,7 @@ final class AuthManager
     /** @param array<string, mixed> $config */
     public function __construct(
         private readonly array $config,
-        ?LoggerInterface $logger = null,
+        ?SecurityLogger $logger = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
     }

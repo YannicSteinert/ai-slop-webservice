@@ -135,34 +135,29 @@ The Kernel enforces them via the `Gate` (403 on denial). Routes without
 ## Logging
 
 Logging is PSR-3 (`Psr\Log\LoggerInterface`), backed by **Monolog** (built in
-[`LoggerFactory`](src/Logging/LoggerFactory.php)). It writes one line per record
-to the configured file/stream and interpolates `{placeholder}` messages; enrich
-the Monolog stack there or bind a different PSR-3 logger. Config
-(`config/config.php` → `logging`):
+[`LoggerFactory`](src/Logging/LoggerFactory.php)), split into three **daily-
+rotated** channels kept for `max_files` days — `application-*.log` (request
+lifecycle), `security-*.log` (logins, auth failures, policy denials, 401/403)
+and `error-*.log` (every error, consolidated). Config (`config/config.php` →
+`logging`):
 
 ```php
 'logging' => [
-    'path'  => dirname(__DIR__) . '/storage/logs/app.log', // or 'php://stderr'
-    'level' => 'debug',
+    'dir'       => dirname(__DIR__) . '/storage/logs',
+    'level'     => 'debug',
+    'max_files' => 14,   // days kept per channel
 ],
 ```
 
-Every request gets a correlation `request_id` that appears on all of its log
-records. Logging is wired at the points that matter:
+Every request gets a correlation `request_id` on all of its records. Inject
+`LoggerInterface` for application logging, or `SecurityLogger` for security
+events (it routes to the security channel). See [docs/logging.md](docs/logging.md).
 
-| Where | Level | What |
-|---|---|---|
-| Kernel | debug / info | request received; request handled (status + duration) |
-| Kernel | error | unhandled exception (message, class, file, trace) |
-| Kernel | warning / info | handled `HttpException` (401/403 warn, other 4xx info, 5xx error) |
-| LoginWebservice | info / warning | login succeeded / failed; logout |
-| Kernel | warning | policy denial (policy, path) |
-
-Example:
+Example (`security-*.log`):
 
 ```
-[2026-10-14T06:47:11+00:00] INFO: Login succeeded via ldap {"request_id":"4e48…","provider":"ldap","subject":"devuser","type":"user"}
-[2026-10-14T06:47:11+00:00] WARNING: Request failed with 401: Invalid credentials. {"request_id":"c93c…","status":401,…}
+[2026-10-16T06:47:11+00:00] security.INFO: Login succeeded via ldap {"request_id":"4e48…","provider":"ldap","subject":"devuser","type":"user"}
+[2026-10-16T06:47:11+00:00] security.WARNING: Request failed with 401: Invalid credentials. {"request_id":"c93c…","status":401,…}
 ```
 
 Tests run with a `NullLogger` by default; pass a capturing logger to

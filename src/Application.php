@@ -14,6 +14,7 @@ use bapersbw\Database\Connection;
 use bapersbw\Http\Request;
 use bapersbw\Http\Response;
 use bapersbw\Logging\LoggerFactory;
+use bapersbw\Logging\SecurityLogger;
 use bapersbw\Policy\AuthenticatedPolicy;
 use bapersbw\Policy\Gate;
 use bapersbw\Routing\Router;
@@ -45,8 +46,18 @@ final class Application
         $this->container = $container;
         $container->instance(Container::class, $container);
 
-        $logger ??= LoggerFactory::create((array) ($config['logging'] ?? []));
+        // Split logging into daily-rotated channels (application / security /
+        // error). A logger injected for tests is reused for both channels so no
+        // files are written; otherwise each channel gets its own rotating files.
+        $logConfig = (array) ($config['logging'] ?? []);
+        if ($logger !== null) {
+            $securityLogger = new SecurityLogger($logger);
+        } else {
+            $logger = LoggerFactory::create($logConfig, 'application');
+            $securityLogger = new SecurityLogger(LoggerFactory::create($logConfig, 'security'));
+        }
         $container->instance(LoggerInterface::class, $logger);
+        $container->instance(SecurityLogger::class, $securityLogger);
 
         // Lazy: the database only connects when a repository first uses it.
         $container->bind(Connection::class, static fn () => new Connection((array) ($config['database'] ?? [])));
@@ -67,7 +78,7 @@ final class Application
 
         // Bound so autowired webservices receive them (e.g. the OAuth and Login modules).
         $container->instance(TokenStore::class, $tokenStore);
-        $container->instance(AuthManager::class, new AuthManager((array) ($config['auth'] ?? []), $logger));
+        $container->instance(AuthManager::class, new AuthManager((array) ($config['auth'] ?? []), $securityLogger));
         $container->instance(SessionGuard::class, $sessionGuard);
 
         $this->gate = new Gate();
@@ -82,6 +93,7 @@ final class Application
             tokenGuard: $tokenGuard,
             gate: $this->gate,
             config: $config,
+            securityLogger: $securityLogger,
         );
     }
 

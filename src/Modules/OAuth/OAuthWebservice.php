@@ -8,6 +8,7 @@ use bapersbw\Attributes\Route;
 use bapersbw\Auth\Identity;
 use bapersbw\Auth\TokenStore;
 use bapersbw\Http\Response;
+use bapersbw\Logging\SecurityLogger;
 use bapersbw\Webservice;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -33,7 +34,7 @@ final class OAuthWebservice extends Webservice
 
     public function __construct(
         private readonly TokenStore $tokens,
-        ?LoggerInterface $logger = null,
+        ?SecurityLogger $logger = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
     }

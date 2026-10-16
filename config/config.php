@@ -44,13 +44,18 @@ $config = [
     ],
 
     /**
-     * Logging. `path` is a file path or a PHP stream (e.g. 'php://stderr');
-     * `level` is the minimum PSR-3 level that gets written. Bind any PSR-3
-     * logger (Monolog, ...) on LoggerInterface to replace the default.
+     * Logging. Each channel writes its own daily-rotated file in `dir`, kept for
+     * `max_files` days:
+     *   application-YYYY-MM-DD.log   request lifecycle
+     *   security-YYYY-MM-DD.log      logins, auth failures, policy denials
+     *   error-YYYY-MM-DD.log         every ERROR, from any channel
+     * `level` is the minimum PSR-3 level written. Set `path` to a stream (e.g.
+     * 'php://stderr') to log to one stream instead of rotating files.
      */
     'logging' => [
-        'path' => dirname(__DIR__) . '/storage/logs/app.log',
+        'dir' => dirname(__DIR__) . '/storage/logs',
         'level' => 'debug',
+        'max_files' => 14,
     ],
 
     /**

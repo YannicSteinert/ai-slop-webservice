@@ -10,6 +10,7 @@ use bapersbw\Auth\SessionGuard;
 use bapersbw\Attributes\Route;
 use bapersbw\Exceptions\HttpException;
 use bapersbw\Http\Response;
+use bapersbw\Logging\SecurityLogger;
 use bapersbw\Webservice;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -34,7 +35,7 @@ final class LoginWebservice extends Webservice
     public function __construct(
         private readonly AuthManager $auth,
         private readonly SessionGuard $guard,
-        ?LoggerInterface $logger = null,
+        ?SecurityLogger $logger = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
     }
