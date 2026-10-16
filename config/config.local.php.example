@@ -1,0 +1,49 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * LOCAL development overrides — copy this file to `config/config.local.php`
+ * (which is git-ignored) and adjust. Only list the keys you want to change;
+ * they are deep-merged over `config/config.php`, so everything you omit keeps
+ * its baseline value.
+ *
+ * This example is for a machine with NO MSSQL, NO real LDAP and NO SAML/SSO:
+ * it points the database at a local sqlite file and relies on the baseline's
+ * `fake` LDAP login (devuser / secret). SAML is simply left unconfigured —
+ * don't use the `saml` provider locally.
+ */
+return [
+    // sqlite instead of MSSQL — needs ext-pdo_sqlite (bundled with most PHP
+    // builds). The file is created on first migration; keep it out of git.
+    'database' => [
+        'driver' => 'sqlite',
+        'database' => dirname(__DIR__) . '/storage/dev.sqlite',
+    ],
+
+    // LDAP stays in fake mode locally (this is already the baseline default,
+    // shown here for clarity). Log in with devuser / secret. Add more users as
+    // needed — this whole `users` map REPLACES the baseline one.
+    'auth' => [
+        'default' => 'ldap',
+        'ldap' => [
+            'fake' => true,
+            'users' => [
+                'devuser' => [
+                    'password' => 'secret',
+                    'display_name' => 'Dev User',
+                    'roles' => ['admin'],
+                    'attributes' => ['email' => 'dev@example.test'],
+                ],
+            ],
+        ],
+    ],
+
+    // Front-end origin(s) you run locally (Vite default shown).
+    'cors' => [
+        'allowed_origins' => ['http://localhost:5173'],
+    ],
+
+    // 'base_path' => '',   // app is at the server root locally
+    // 'debug' => true,     // baseline is already true
+];

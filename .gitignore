@@ -1,0 +1,12 @@
+# Local, machine-specific config overlay (deep-merged over config/config.php).
+# Never commit this — it holds per-machine overrides (and may hold secrets).
+/config/config.local.php
+
+# Local sqlite development databases.
+/storage/*.sqlite
+
+# Log files (keep the directory).
+/storage/logs/*.log
+
+# Standalone diagnostics — must not reach production.
+/public/_debug.php

@@ -58,6 +58,18 @@ final class OAuthWebservice extends Webservice
             return $this->redirect($this->appendQuery($redirectUri, ['error' => 'unsupported_response_type', 'state' => $state]));
         }
 
+        $codeChallenge = $this->nullIfEmpty($this->request->query('code_challenge'));
+
+        // Public clients (SPAs) have no secret, so PKCE is their only protection:
+        // require a code_challenge up front rather than issuing a bypassable code.
+        if ($codeChallenge === null && $this->tokens->isPublicClient($clientId)) {
+            return $this->redirect($this->appendQuery($redirectUri, [
+                'error' => 'invalid_request',
+                'error_description' => 'code_challenge required',
+                'state' => $state,
+            ]));
+        }
+
         // Require a logged-in human (established by SAML/LDAP → session).
         $identity = $this->request->attribute('identity');
         if (!$identity instanceof Identity || $identity->type !== Identity::TYPE_USER) {
@@ -71,7 +83,7 @@ final class OAuthWebservice extends Webservice
             $clientId,
             $redirectUri,
             $identity,
-            $this->nullIfEmpty($this->request->query('code_challenge')),
+            $codeChallenge,
             $this->nullIfEmpty($this->request->query('code_challenge_method')),
         );
 
@@ -90,14 +102,24 @@ final class OAuthWebservice extends Webservice
         [$clientId, $secret] = $this->clientCredentials();
         $grant = (string) $this->request->input('grant_type', '');
 
-        // Every grant requires an authenticated (confidential) client.
-        if ($clientId === '' || !$this->tokens->authenticateClient($clientId, $secret)) {
-            $this->logger->warning('OAuth client authentication failed for {client}', [
-                'request_id' => $this->request->attribute('request_id'),
-                'client' => $clientId,
-            ]);
+        if ($clientId === '' || !$this->tokens->clientExists($clientId)) {
+            return $this->invalidClient($clientId);
+        }
 
-            return $this->json(['error' => 'invalid_client'], 401)->withHeader('WWW-Authenticate', 'Basic');
+        if ($this->tokens->isPublicClient($clientId)) {
+            // Public (secret-less) client: PKCE-protected user flows only. PKCE
+            // itself is enforced at /authorize and re-checked on code redemption.
+            if ($grant !== 'authorization_code' && $grant !== 'refresh_token') {
+                $this->logger->warning('Public client {client} attempted grant {grant}', [
+                    'request_id' => $this->request->attribute('request_id'),
+                    'client' => $clientId,
+                    'grant' => $grant,
+                ]);
+
+                return $this->json(['error' => 'unauthorized_client'], 400);
+            }
+        } elseif (!$this->tokens->authenticateClient($clientId, $secret)) {
+            return $this->invalidClient($clientId);
         }
 
         return match ($grant) {
@@ -129,6 +151,16 @@ final class OAuthWebservice extends Webservice
         return $result === null
             ? $this->json(['error' => 'invalid_grant'], 400)
             : $this->json($result);
+    }
+
+    private function invalidClient(string $clientId): Response
+    {
+        $this->logger->warning('OAuth client authentication failed for {client}', [
+            'request_id' => $this->request->attribute('request_id'),
+            'client' => $clientId,
+        ]);
+
+        return $this->json(['error' => 'invalid_client'], 401)->withHeader('WWW-Authenticate', 'Basic');
     }
 
     /**

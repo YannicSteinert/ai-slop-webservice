@@ -22,7 +22,21 @@ final class M0003_CreateOAuthCodeAndRefreshTables implements Migration
 {
     public function up(Connection $db): void
     {
-        $db->execute(<<<'SQL'
+        $sqlite = $db->driver() === 'sqlite';
+
+        $db->execute($sqlite ? <<<'SQL'
+            CREATE TABLE oauth_auth_codes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                code_hash TEXT NOT NULL UNIQUE,
+                client_id TEXT NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                principal TEXT NOT NULL,
+                code_challenge TEXT NULL,
+                code_challenge_method TEXT NULL,
+                expires_at INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            SQL : <<<'SQL'
             CREATE TABLE oauth_auth_codes (
                 id INT IDENTITY(1,1) PRIMARY KEY,
                 code_hash CHAR(64) NOT NULL UNIQUE,
@@ -36,7 +50,16 @@ final class M0003_CreateOAuthCodeAndRefreshTables implements Migration
             )
             SQL);
 
-        $db->execute(<<<'SQL'
+        $db->execute($sqlite ? <<<'SQL'
+            CREATE TABLE oauth_refresh_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                token_hash TEXT NOT NULL UNIQUE,
+                client_id TEXT NOT NULL,
+                principal TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            SQL : <<<'SQL'
             CREATE TABLE oauth_refresh_tokens (
                 id INT IDENTITY(1,1) PRIMARY KEY,
                 token_hash CHAR(64) NOT NULL UNIQUE,
@@ -50,6 +73,13 @@ final class M0003_CreateOAuthCodeAndRefreshTables implements Migration
 
     public function down(Connection $db): void
     {
+        if ($db->driver() === 'sqlite') {
+            $db->execute('DROP TABLE IF EXISTS oauth_refresh_tokens');
+            $db->execute('DROP TABLE IF EXISTS oauth_auth_codes');
+
+            return;
+        }
+
         $db->execute("IF OBJECT_ID('oauth_refresh_tokens', 'U') IS NOT NULL DROP TABLE oauth_refresh_tokens");
         $db->execute("IF OBJECT_ID('oauth_auth_codes', 'U') IS NOT NULL DROP TABLE oauth_auth_codes");
     }

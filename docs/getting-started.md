@@ -46,6 +46,43 @@ curl http://127.0.0.1:8080/users
 curl http://127.0.0.1:8080/users/5/show
 ```
 
+## Local development without MSSQL / LDAP / SSO
+
+You can run and test the whole service on a machine that has **no MSSQL server,
+no real LDAP directory and no SAML IdP** — and still clone the same repo onto the
+production IIS box unchanged. Two mechanisms make this work:
+
+1. **A git-ignored config overlay.** `config/config.php` is the committed
+   baseline you edit with *production* values. Drop a `config/config.local.php`
+   next to it returning only the keys you want to override; it is deep-merged
+   over the baseline and **git-ignored**, so it never follows the repo to prod.
+   Copy the template to get going:
+
+   ```bash
+   cp config/config.local.php.example config/config.local.php
+   ```
+
+   The example points the database at a local **sqlite** file and keeps LDAP in
+   `fake` mode (log in as `devuser` / `secret`). SAML is simply not used locally.
+
+2. **Driver-aware migrations.** Each migration emits sqlite DDL when the
+   `database.driver` is `sqlite` and MSSQL T-SQL otherwise — so `bin/console
+   migrate` builds the same schema locally that it builds on MSSQL.
+
+sqlite needs `ext-pdo_sqlite`. It ships with most PHP builds but may be off by
+default (as on this setup) — enable it per command with `-d extension=pdo_sqlite`
+(or in `php.ini` for good). Set up and run locally:
+
+```bash
+php -d extension=pdo_sqlite bin/console migrate                       # build the schema
+php -d extension=pdo_sqlite bin/console oauth:client:create "Local"    # (optional) an OAuth client
+php -d extension=pdo_sqlite -S 127.0.0.1:8080 -t public               # serve
+```
+
+Then `devuser` / `secret` logs you in at `/login`, and the OAuth endpoints work
+against the sqlite file. On the production clone you leave `config.local.php` out
+entirely and edit `config/config.php` instead — see [Deployment](deployment.md).
+
 ## Test
 
 ```bash
@@ -104,6 +141,8 @@ Everything tunable lives in [`config/config.php`](../config/config.php):
 | Key | Purpose | Docs |
 |---|---|---|
 | `debug` | include exception detail in 500 responses | [Architecture](architecture.md) |
+| `base_path` | mount sub-path to strip (`''` = auto) | [Architecture](architecture.md) |
+| `cors` | allowed cross-origin origins/methods/headers | [Architecture](architecture.md#cors) |
 | `logging` | log path + level | [Logging](logging.md) |
 | `session` | cookie name/lifetime/flags | [Authentication](authentication.md) |
 | `auth` | default/enabled login providers, LDAP + SAML settings | [Authentication](authentication.md) |

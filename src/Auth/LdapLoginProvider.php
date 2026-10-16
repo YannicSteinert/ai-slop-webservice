@@ -229,6 +229,8 @@ final class LdapLoginProvider implements LoginProviderInterface
 
         $entries = ldap_get_entries($connection, $search);
         if (!isset($entries[0])) {
+            $this->logger->debug('LDAP returned no entry for {user} when fetching attributes', ['user' => $username]);
+
             return [];
         }
 
@@ -243,6 +245,13 @@ final class LdapLoginProvider implements LoginProviderInterface
             $attrs[strtolower($key)] = $value;
         }
 
+        // Debug: log exactly what the directory returned (names + values), with
+        // any binary / non-UTF-8 values rendered safely so logging can't fail.
+        $this->logger->debug('LDAP attributes returned for {user}: {attributes}', [
+            'user' => $username,
+            'attributes' => $this->loggableAttributes($attrs),
+        ]);
+
         $result = ['attributes' => $attrs];
         if (isset($attrs['cn'][0])) {
             $result['display_name'] = $attrs['cn'][0];
@@ -252,5 +261,31 @@ final class LdapLoginProvider implements LoginProviderInterface
         }
 
         return $result;
+    }
+
+    /**
+     * Render fetched attributes for logging: a map of name => values, with any
+     * non-UTF-8 (binary) value replaced by a "base64:…" marker so the log line
+     * is always valid, printable JSON.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, list<string>>
+     */
+    private function loggableAttributes(array $attrs): array
+    {
+        $safe = [];
+        foreach ($attrs as $name => $value) {
+            $values = is_array($value) ? array_values($value) : [$value];
+            $safe[$name] = array_map(
+                static function (mixed $v): string {
+                    $v = (string) $v;
+
+                    return preg_match('//u', $v) === 1 ? $v : 'base64:' . base64_encode($v);
+                },
+                $values,
+            );
+        }
+
+        return $safe;
     }
 }

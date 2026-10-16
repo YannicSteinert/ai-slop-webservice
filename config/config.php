@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 /**
  * Application configuration.
+ *
+ * This file is the committed baseline — edit it with your *production* values
+ * (real MSSQL, SAML, real LDAP). For a machine that can't run those (local dev
+ * with no MSSQL/LDAP/SSO), drop a `config/config.local.php` next to this file
+ * returning only the keys you want to override; it is git-ignored and deep-
+ * merged over the values below. See `config/config.local.php.example`.
  */
-return [
+$config = [
     // When true, 500 responses include the exception message and trace.
     'debug' => true,
 
@@ -53,10 +59,10 @@ return [
      * development, or provide an explicit 'dsn' for anything else.
      */
     'database' => [
-        'driver' => 'sqlsrv',
+        'driver' => 'sqlite',
         'host' => 'localhost',
         'port' => 1433,
-        'database' => 'app',
+        'database' => dirname(__DIR__) . '/storage/dev.sqlite',
         'username' => 'sa',
         'password' => '',
         'encrypt' => true, // adds Encrypt + TrustServerCertificate for sqlsrv
@@ -154,3 +160,36 @@ return [
         'refresh_ttl' => 1209600, // refresh token lifetime (seconds, 14 days)
     ],
 ];
+
+/**
+ * Deep-merge an optional, git-ignored local overlay over the baseline above.
+ * Associative arrays are merged key-by-key (recursively); any other value
+ * (scalars and list arrays such as `allowed_origins` or the `users` map)
+ * replaces the baseline wholesale. This lets a dev machine override only what
+ * it needs (e.g. the database driver) without copying the whole file.
+ */
+$localConfig = __DIR__ . '/config.local.php';
+
+if (is_file($localConfig)) {
+    $deepMerge = static function (array $base, array $over) use (&$deepMerge): array {
+        foreach ($over as $key => $value) {
+            if (
+                is_string($key)
+                && isset($base[$key])
+                && is_array($base[$key])
+                && is_array($value)
+                && array_is_list($value) === false
+            ) {
+                $base[$key] = $deepMerge($base[$key], $value);
+            } else {
+                $base[$key] = $value;
+            }
+        }
+
+        return $base;
+    };
+
+    $config = $deepMerge($config, (array) require $localConfig);
+}
+
+return $config;

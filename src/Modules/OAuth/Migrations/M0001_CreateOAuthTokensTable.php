@@ -23,6 +23,28 @@ final class M0001_CreateOAuthTokensTable implements Migration
 {
     public function up(Connection $db): void
     {
+        if ($db->driver() === 'sqlite') {
+            $db->execute(<<<'SQL'
+                CREATE TABLE oauth_tokens (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    token_hash TEXT NOT NULL UNIQUE,
+                    client_id TEXT NOT NULL,
+                    principal TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                SQL);
+
+            $db->execute(<<<'SQL'
+                CREATE TRIGGER trg_oauth_tokens_purge AFTER INSERT ON oauth_tokens
+                BEGIN
+                    DELETE FROM oauth_tokens WHERE expires_at < strftime('%s', 'now');
+                END
+                SQL);
+
+            return;
+        }
+
         // CREATE TRIGGER must be its own batch in MSSQL, so run two statements.
         $db->execute(<<<'SQL'
             CREATE TABLE oauth_tokens (
@@ -47,6 +69,13 @@ final class M0001_CreateOAuthTokensTable implements Migration
 
     public function down(Connection $db): void
     {
+        if ($db->driver() === 'sqlite') {
+            $db->execute('DROP TRIGGER IF EXISTS trg_oauth_tokens_purge');
+            $db->execute('DROP TABLE IF EXISTS oauth_tokens');
+
+            return;
+        }
+
         $db->execute("IF OBJECT_ID('trg_oauth_tokens_purge', 'TR') IS NOT NULL DROP TRIGGER trg_oauth_tokens_purge");
         $db->execute("IF OBJECT_ID('oauth_tokens', 'U') IS NOT NULL DROP TABLE oauth_tokens");
     }

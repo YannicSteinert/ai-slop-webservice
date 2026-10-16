@@ -51,8 +51,32 @@ final class M0001_CreateUsersTable implements Migration
 }
 ```
 
-Write the SQL for your target database (MSSQL in production). The example uses
-MSSQL DDL (`IDENTITY`, `NVARCHAR`, `DATETIME2`).
+Write the SQL for your target database. The snippet above is pure MSSQL DDL
+(`IDENTITY`, `NVARCHAR`, `DATETIME2`). If you also develop locally on **sqlite**
+(see [Getting Started](getting-started.md#local-development-without-mssql--ldap--sso)),
+make the migration driver-aware so the same class builds both schemas — the
+bundled migrations do exactly this:
+
+```php
+public function up(Connection $db): void
+{
+    $db->execute(match ($db->driver()) {
+        'sqlite' => 'CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, …)',
+        default  => 'CREATE TABLE users (id INT IDENTITY(1,1) PRIMARY KEY, username NVARCHAR(100) NOT NULL UNIQUE, …)',
+    });
+}
+
+public function down(Connection $db): void
+{
+    $db->execute(match ($db->driver()) {
+        'sqlite' => 'DROP TABLE IF EXISTS users',
+        default  => "IF OBJECT_ID('users', 'U') IS NOT NULL DROP TABLE users",
+    });
+}
+```
+
+The `sqlsrv` branch is what runs in production; the `sqlite` branch is only for
+local dev. If you only ever target MSSQL, a single statement is fine.
 
 ## Naming and ordering
 

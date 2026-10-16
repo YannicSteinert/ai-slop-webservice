@@ -92,9 +92,12 @@ Credential-based. Two modes, chosen by config:
     ],
 
     // REAL LDAP (when 'fake' => false), via ext-ldap:
-    'host'      => 'ldap://ldap.example.com',
-    'port'      => 389,
-    'dn_format' => 'uid=%s,ou=people,dc=example,dc=com',
+    'host'       => 'ldap://ldap.example.com', // or ldaps://… for LDAPS
+    'port'       => 389,                        // 636 for LDAPS
+    'dn_format'  => 'uid=%s,ou=people,dc=example,dc=com', // %s = username
+    'start_tls'  => false,                      // true to upgrade a 389 connection to TLS
+    'attributes' => ['cn', 'mail', 'memberOf'], // optional: fetched after bind
+    'base_dn'    => 'ou=people,dc=example,dc=com', // fallback search base for attributes
 ],
 ```
 
@@ -107,6 +110,25 @@ curl -c jar -X POST -d 'username=devuser&password=secret' \
      http://localhost:8080/login/ldap/callback
 curl -b jar http://localhost:8080/login/whoami
 ```
+
+Real-LDAP config keys:
+
+- **`dn_format`** — the bind DN template (`%s` = username). Must match your
+  directory (e.g. AD: `%s@example.com` or `CN=%s,OU=Users,DC=example,DC=com`).
+  A wrong template is the most common cause of a failed login.
+- **`start_tls`** — `true` upgrades a port-389 connection to TLS before binding;
+  alternatively use `ldaps://` + port 636 and leave this false.
+- **`attributes`** — fetched after a successful bind; `cn` → display name,
+  `memberOf` → roles. `base_dn` is the fallback search base. Omit to skip.
+
+Every failed bind returns the same generic **401 "Invalid credentials."** to the
+client, but the *real* reason is logged at `warning`:
+
+- `LDAP (fake mode) auth failed: …` — you're still in `fake => true` mode (it
+  never contacted the directory); set `fake => false` to use real LDAP.
+- `LDAP bind failed for <dn>: <error> <diagnostic>` — the directory rejected it;
+  the error text distinguishes a wrong `dn_format` (`Invalid DN syntax`), bad
+  credentials (AD subcode `52e`), unknown user (`525`), or connectivity/TLS.
 
 ### SAML ([`SamlLoginProvider`](../src/Auth/SamlLoginProvider.php))
 
@@ -167,13 +189,31 @@ Pieces:
 ],
 ```
 
-Run `php bin/console migrate`, then register a client with its allowed redirect
-URIs (secret shown once, stored hashed):
+Run `php bin/console migrate`, then register a client. Two kinds:
+
+**Confidential** — a server-side client that can keep a secret (shown once,
+stored hashed). Can use any grant.
 
 ```bash
 php bin/console oauth:client:create "Onboarding App" https://app.example/callback
 #   client_id:     7f3c…   client_secret: a19e…
 ```
+
+**Public** — a browser app (SPA: Vue/React/…) that *cannot* keep a secret. It
+has no secret at all; **PKCE is mandatory** and it is restricted to the
+`authorization_code` + `refresh_token` grants (never `client_credentials`). A
+public client is marked internally by an empty `secret_hash`, which can never
+match a real one.
+
+```bash
+php bin/console oauth:client:create:public "Vite SPA" http://localhost:5173/callback
+#   client_id:     416b…   (no secret)
+```
+
+For a public client: `/authorize` rejects a request with no `code_challenge`
+(`invalid_request`), and `/token` takes only `client_id` + `code_verifier` — no
+`Authorization: Basic`, no `client_secret`. Make sure the SPA's dev/prod origin
+is in `config` → `cors.allowed_origins`.
 
 ### Authorization-code flow (user-delegated)
 
@@ -184,7 +224,8 @@ php bin/console oauth:client:create "Onboarding App" https://app.example/callbac
      then is redirected back here)
    → 302 to <redirect_uri>?code=…&state=…
 
-2. POST /oauth/token            (client auth: Authorization: Basic id:secret)
+2. POST /oauth/token            (confidential: Authorization: Basic id:secret;
+                                 public: client_id in the body, no secret)
      grant_type=authorization_code&code=…&redirect_uri=…&code_verifier=…
    → { "access_token", "token_type":"Bearer", "expires_in", "refresh_token" }
 ```

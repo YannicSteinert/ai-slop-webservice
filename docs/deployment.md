@@ -27,6 +27,12 @@ a database (the connection is lazy); only DB-backed routes (OAuth) need it.
 
 ## 2. Configuration (`config/config.php`)
 
+> `config/config.php` is the production file — edit it directly here. The local
+> dev overlay (`config/config.local.php`) is git-ignored, so a fresh clone won't
+> have one; if you ever copied it onto the server, delete it (it would override
+> these values, e.g. forcing sqlite).
+
+
 - [ ] **`database`** → your MSSQL `host`, `port`, `database`, `username`,
       `password` (`encrypt` on for Azure SQL / enforced TLS).
 - [ ] **`auth.saml.settings`** → real `idp` (`entityId`, `singleSignOnService.url`,
@@ -47,6 +53,7 @@ These ship as development-friendly values and **must** change for production:
 | `auth.default` | `ldap` | `saml` (your primary provider) |
 | `auth.enabled` | `['ldap', 'saml']` | drop providers you don't use |
 | `logging.level` | `debug` | `info` or `warning` |
+| `cors.allowed_origins` | `['http://localhost:5173']` | your real front-end origin(s), or drop CORS if same-origin |
 
 > Leaving `auth.ldap.fake => true` in production means the hard-coded
 > `devuser` / `secret` account can log in. Turn it off.

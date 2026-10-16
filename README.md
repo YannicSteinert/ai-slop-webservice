@@ -14,14 +14,18 @@ policies are wired once and stay out of your way.
 public/index.php → Application (composition root)
    └─ Kernel::handle(Request)
         ├─ start session
+        ├─ answer CORS preflight (OPTIONS) early
         ├─ resolve identity             token guard, then session guard
         ├─ Router::match()              resolve module → match attribute route
         ├─ enforce #[Authorize] policies via the Gate
-        └─ invoke handler               bind args from path + container → Response
+        ├─ invoke handler               bind args from path + container → Response
+        └─ apply CORS headers to the response
 ```
 
 These steps live directly in the Kernel (no middleware layer) to keep the
 framework small; new cross-cutting behaviour is added by editing that flow.
+CORS is config-driven (`config` → `cors`); see
+[docs/architecture.md](docs/architecture.md#cors).
 
 The URL is read as `/{module}/{...rest}`:
 

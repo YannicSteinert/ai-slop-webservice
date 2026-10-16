@@ -9,7 +9,8 @@ declare(strict_types=1);
  *   php bin/console migrate            apply all pending module migrations
  *   php bin/console migrate:rollback   roll back the most recent batch
  *   php bin/console migrate:status     show each migration and whether it ran
- *   php bin/console oauth:client:create "<name>" [redirect_uri ...]   register a client
+ *   php bin/console oauth:client:create "<name>" [redirect_uri ...]          register a confidential client
+ *   php bin/console oauth:client:create:public "<name>" <redirect_uri ...>   register a public (PKCE, no secret) client
  *   php bin/console oauth:purge        delete expired OAuth tokens
  *
  * Migrations are discovered per module (Modules/<Name>/Migrations/) from the
@@ -63,6 +64,23 @@ switch ($command) {
         if ($redirectUris !== []) {
             echo "  redirect_uris: " . implode(', ', $redirectUris) . "\n";
         }
+        break;
+
+    case 'oauth:client:create:public':
+        $name = trim((string) ($argv[2] ?? ''));
+        if ($name === '') {
+            fwrite(STDERR, "Usage: php bin/console oauth:client:create:public \"<name>\" <redirect_uri> [redirect_uri ...]\n");
+            exit(1);
+        }
+        $redirectUris = array_slice($argv, 3);
+        if ($redirectUris === []) {
+            fwrite(STDERR, "A public client needs at least one redirect_uri.\n");
+            exit(1);
+        }
+        $client = (new TokenStore($connection))->createPublicClient($name, $redirectUris);
+        echo "Public client created (no secret — uses PKCE).\n";
+        echo "  client_id:     {$client['client_id']}\n";
+        echo "  redirect_uris: " . implode(', ', $redirectUris) . "\n";
         break;
 
     case 'oauth:purge':

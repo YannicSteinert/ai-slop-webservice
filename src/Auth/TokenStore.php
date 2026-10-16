@@ -55,6 +55,27 @@ final class TokenStore
         return ['client_id' => $clientId, 'client_secret' => $secret];
     }
 
+    /**
+     * Register a PUBLIC client — one with no secret, for use by browser apps
+     * (SPAs) that cannot keep a secret. It is restricted to the PKCE-protected
+     * authorization_code + refresh_token grants (never client_credentials).
+     * Marked by an empty secret_hash, which can never match a real hash.
+     *
+     * @param list<string> $redirectUris
+     * @return array{client_id: string}
+     */
+    public function createPublicClient(string $name, array $redirectUris = []): array
+    {
+        $clientId = bin2hex(random_bytes(16));
+
+        $this->db->execute(
+            'INSERT INTO ' . self::CLIENTS . ' (client_id, name, secret_hash, redirect_uris) VALUES (?, ?, ?, ?)',
+            [$clientId, $name, '', json_encode(array_values($redirectUris))],
+        );
+
+        return ['client_id' => $clientId];
+    }
+
     public function authenticateClient(string $clientId, string $secret): bool
     {
         $row = $this->db->selectOne(
@@ -62,7 +83,21 @@ final class TokenStore
             [$clientId],
         );
 
-        return $row !== null && password_verify($secret, (string) $row['secret_hash']);
+        // An empty stored hash marks a public client — it has no secret to verify.
+        return $row !== null
+            && (string) $row['secret_hash'] !== ''
+            && password_verify($secret, (string) $row['secret_hash']);
+    }
+
+    /** A public client has no secret (PKCE-only). */
+    public function isPublicClient(string $clientId): bool
+    {
+        $row = $this->db->selectOne(
+            'SELECT secret_hash FROM ' . self::CLIENTS . ' WHERE client_id = ?',
+            [$clientId],
+        );
+
+        return $row !== null && (string) $row['secret_hash'] === '';
     }
 
     public function clientExists(string $clientId): bool

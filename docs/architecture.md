@@ -11,18 +11,43 @@ public/index.php
    └─ Application (composition root: wires everything from config)
         └─ Kernel::handle(Request)
              1. assign a request_id, start the session
-             2. resolve identity   — TokenGuard (bearer), else SessionGuard (cookie)
-             3. Router::match()     — module → attribute route
-             4. enforce policies    — each #[Authorize] checked via the Gate
-             5. dispatch            — instantiate the webservice, bind args, invoke
-             6. normalise result    — Response / null(204) / value(JSON)
+             2. CORS preflight?  — answer OPTIONS immediately (204 + CORS headers)
+             3. resolve identity  — TokenGuard (bearer), else SessionGuard (cookie)
+             4. Router::match()    — module → attribute route
+             5. enforce policies   — each #[Authorize] checked via the Gate
+             6. dispatch           — instantiate the webservice, bind args, invoke
+             7. normalise result   — Response / null(204) / value(JSON)
+             8. apply CORS headers to the response
              (logging + exception→HTTP mapping wrap the whole flow)
 ```
 
 These steps live directly in [`src/Kernel.php`](../src/Kernel.php). There is no
 middleware layer — it was removed to keep the framework small. To add a new
-cross-cutting concern (rate limiting, CORS, request metrics), you edit the
+cross-cutting concern (rate limiting, request metrics, …), you edit the
 `process()` method in the Kernel. Read it top to bottom; it is short.
+
+## CORS
+
+Browsers send an `OPTIONS` preflight before a cross-origin request that carries
+an `Authorization` header or a JSON body (e.g. `POST /oauth/token` from a
+front-end on another origin). The Kernel answers that preflight itself (routes
+only declare GET/POST, so it would otherwise 405) and stamps CORS headers on
+every response whose request carries an allowed `Origin`. Config
+(`config/config.php` → `cors`):
+
+```php
+'cors' => [
+    'allowed_origins' => ['http://localhost:5173'], // explicit list, or ['*'] for any
+    'allowed_methods' => ['GET', 'POST', 'OPTIONS'],
+    'allowed_headers' => null,       // null = reflect the preflight's requested headers
+    'allow_credentials' => true,     // echoes the origin back (spec forbids '*' + credentials)
+    'max_age' => 600,
+],
+```
+
+An origin that isn't allow-listed simply receives no CORS headers, so the
+browser blocks it. Set `allowed_origins` to your real front-end origins in
+production.
 
 ## The core classes
 
